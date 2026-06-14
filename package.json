@@ -1,0 +1,14 @@
+{
+  "name": "saude-ambiente-regional-caceres",
+  "version": "1.0.0",
+  "description": "Painel interativo de Saúde & Ambiente da Regional de Saúde de Cáceres (MT)",
+  "scripts": {
+    "build": "python3 etl/build_data.py",
+    "test": "node etl/_smoketest.js",
+    "serve": "python3 -m http.server 8080"
+  },
+  "devDependencies": {
+    "jsdom": "^24.0.0"
+  },
+  "license": "MIT"
+}

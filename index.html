@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Painel Saúde & Ambiente — Regional de Saúde de Cáceres (MT)</title>
+<meta name="description" content="Plataforma interativa de análise de saúde e ambiente da Regional de Saúde de Cáceres (MT). Dados de internações, óbitos, clima, qualidade do ar e uso da terra para apoio à decisão pública.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌿</text></svg>">
+</head>
+<body>
+<div class="app">
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="logo"><span class="mark">🌿</span><span>Saúde &amp; Ambiente</span></div>
+      <div class="sub">Regional de Saúde de Cáceres · Mato Grosso<br>Plataforma de apoio à decisão pública</div>
+    </div>
+    <nav class="nav" id="nav">
+      <div class="group-label">Panorama</div>
+      <a data-view="overview" class="active"><span class="ico">📊</span> Visão Geral Regional</a>
+      <a data-view="priority"><span class="ico">🎯</span> Prioridades &amp; Decisão</a>
+      <div class="group-label">Análises</div>
+      <a data-view="municipio"><span class="ico">📍</span> Perfil do Município</a>
+      <a data-view="comparar"><span class="ico">⚖️</span> Comparar</a>
+      <a data-view="sazonal"><span class="ico">📅</span> Sazonalidade</a>
+      <a data-view="correl"><span class="ico">🔗</span> Saúde × Ambiente</a>
+      <a data-view="ambiente"><span class="ico">🌎</span> Ambiente &amp; Clima</a>
+      <div class="group-label">Referência</div>
+      <a data-view="legislacao"><span class="ico">⚖️</span> Marcos Legais</a>
+      <a data-view="sobre"><span class="ico">ℹ️</span> Sobre &amp; Metodologia</a>
+    </nav>
+    <div class="foot">
+      Fontes: DATASUS (SIH/SUS, SIM), MapBiomas, BR-DWGD, IBGE Censo 2022.
+      <br>Período saúde 2010–2024 · ambiente 1985–2024.
+    </div>
+  </aside>
+  <div class="backdrop" id="backdrop"></div>
+
+  <!-- Main -->
+  <div class="main">
+    <header class="topbar">
+      <button class="menu-toggle" id="menuToggle">☰</button>
+      <div>
+        <h1 id="pageTitle">Visão Geral Regional</h1>
+        <div class="crumb" id="pageCrumb">Panorama da Regional de Saúde de Cáceres</div>
+      </div>
+      <div class="spacer"></div>
+      <div class="muni-picker" id="globalMuni" style="display:none">
+        <label>Município:</label>
+        <select id="muniSelect"></select>
+      </div>
+    </header>
+    <main class="content" id="content">
+      <div class="loader"><div><div class="spin"></div>Carregando dados…</div></div>
+    </main>
+  </div>
+</div>
+
+<script src="assets/js/echarts.min.js"></script>
+<script src="assets/data/dados.js"></script>
+<script src="assets/js/charts.js"></script>
+<script src="assets/js/recommendations.js"></script>
+<script src="assets/js/app.js"></script>
+</body>
+</html>
