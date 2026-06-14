@@ -9,7 +9,7 @@ const {window}=dom; global.window=window; global.document=window.document;
 window.scrollTo=()=>{}; global.HTMLElement=window.HTMLElement;
 let errors=[];
 // mock echarts
-const mkInst=()=>({setOption(){},resize(){},dispose(){},group:''});
+const mkInst=()=>({setOption(){},resize(){},dispose(){},on(){},off(){},group:''});
 const reg=new Map();
 window.echarts=global.echarts={
   init(el){const i=mkInst(); if(el) reg.set(el,i); return i;},
@@ -24,7 +24,7 @@ const bundle=[
 ].map(f=>fs.readFileSync(f,'utf8')).join('\n;\n');
 try{ window.eval(bundle); }catch(e){ errors.push('BUNDLE: '+e.stack); }
 
-const views=['overview','priority','municipio','comparar','sazonal','correl','ambiente','legislacao','sobre'];
+const views=['overview','priority','saude','ambiente','correl','municipio','comparar','sazonal','legislacao','sobre'];
 function click(el){ if(el) el.dispatchEvent(new window.Event('click',{bubbles:true})); }
 function change(el){ if(el) el.dispatchEvent(new window.Event('change',{bubbles:true})); }
 

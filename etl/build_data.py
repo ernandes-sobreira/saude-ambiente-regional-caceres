@@ -19,35 +19,42 @@ OUT = os.path.join(os.path.dirname(__file__), "..", "assets", "data")
 os.makedirs(OUT, exist_ok=True)
 
 # ---------------------------------------------------------------------------
-# 1. POPULAÇÃO (IBGE Censo 2022) — chave por código IBGE (canônico)
+# 1. MUNICÍPIOS — população IBGE Censo 2022, indexada por NOME (fonte da verdade)
 # ---------------------------------------------------------------------------
-POP2022 = {
-    5101258: 14786,   # Araputanga
-    5102504: 87942,   # Cáceres  (usaremos valor do censo; ver nota fonte)
-    5103437: 4967,    # Curvelândia
-    5103809: 3112,    # Figueirópolis d'Oeste
-    5103957: 2899,    # Glória d'Oeste
-    5104500: 2194,    # Indiavaí
-    5105002: 8367,    # Jauru
-    5105234: 4724,    # Lambari d'Oeste
-    5105622: 26785,   # Mirassol d'Oeste
-    5106828: 10204,   # Porto Esperidião
-    5107107: 2062,    # Reserva do Cabaçal
-    5107156: 4489,    # Rio Branco
-    5107206: 3679,    # Salto do Céu
-    5107750: 17849,   # São José dos Quatro Marcos
-}
-# Cáceres: o Censo 2022 consolidado registrou 89.478; usamos esse valor.
-POP2022[5102504] = 89478
+# IMPORTANTE: os CSVs de origem (saúde e ambiente) usam um esquema de códigos
+# que NÃO corresponde ao código IBGE oficial em alguns municípios (Reserva do
+# Cabaçal, Rio Branco, Salto do Céu e São José dos Quatro Marcos aparecem
+# "deslocados"). Saúde e ambiente são consistentes ENTRE SI e os NOMES estão
+# corretos em ambos — por isso fazemos a junção pelo NOME normalizado e
+# atribuímos o código IBGE OFICIAL e a população correta a partir do nome.
+def normalize(s):
+    s=str(s).strip().lower()
+    s=''.join(c for c in unicodedata.normalize('NFKD',s) if not unicodedata.combining(c))
+    s=s.replace('’',"'").replace('`',"'").replace('´',"'")
+    return ' '.join(s.split())
 
-NOME_CANONICO = {
-    5101258: "Araputanga", 5102504: "Cáceres", 5103437: "Curvelândia",
-    5103809: "Figueirópolis d'Oeste", 5103957: "Glória d'Oeste",
-    5104500: "Indiavaí", 5105002: "Jauru", 5105234: "Lambari d'Oeste",
-    5105622: "Mirassol d'Oeste", 5106828: "Porto Esperidião",
-    5107107: "Reserva do Cabaçal", 5107156: "Rio Branco",
-    5107206: "Salto do Céu", 5107750: "São José dos Quatro Marcos",
-}
+# (código IBGE oficial, nome canônico, população Censo 2022)
+MUNIS_CANON = [
+    (5101258, "Araputanga", 14786),
+    (5102504, "Cáceres", 89478),
+    (5103437, "Curvelândia", 4967),
+    (5103809, "Figueirópolis d'Oeste", 3112),
+    (5103957, "Glória d'Oeste", 2899),
+    (5104500, "Indiavaí", 2194),
+    (5105002, "Jauru", 8367),
+    (5105234, "Lambari d'Oeste", 4724),
+    (5105622, "Mirassol d'Oeste", 26785),
+    (5106828, "Porto Esperidião", 10204),
+    (5107107, "Reserva do Cabaçal", 2062),
+    (5107156, "Rio Branco", 4489),
+    (5107206, "Salto do Céu", 3679),
+    (5107750, "São José dos Quatro Marcos", 17849),
+]
+POP2022       = {c:p for c,n,p in MUNIS_CANON}
+NOME_CANONICO = {c:n for c,n,p in MUNIS_CANON}
+NORM2COD      = {normalize(n):c for c,n,p in MUNIS_CANON}
+def cod_por_nome(nome):
+    return NORM2COD.get(normalize(nome))
 
 # ---------------------------------------------------------------------------
 # 2. SAÚDE — unifica os 15 arquivos de doenças
@@ -107,9 +114,13 @@ for f in HEALTH_FILES:
     df=pd.read_csv(os.path.join(RAW,f+'.csv'),sep=';')
     frames.append(df)
 H=pd.concat(frames,ignore_index=True)
-H=H[H.codigo_ibge.isin(POP2022)].copy()
+# junção pelo NOME (código do arquivo é inconsistente — ver nota na seção 1)
+H['cod']=H.municipio.map(cod_por_nome)
+nao_mapeados=sorted(H[H.cod.isna()].municipio.unique())
+if nao_mapeados: print("AVISO: municípios de saúde não mapeados:", nao_mapeados)
+H=H[H.cod.notna()].copy()
 H['ano']=H.ano.astype(int); H['mes']=H.mes.astype(int); H['valor']=H.valor.astype(float)
-H['cod']=H.codigo_ibge.astype(int)
+H['cod']=H.cod.astype(int)
 
 ANO_MIN_SAUDE, ANO_MAX_SAUDE = int(H.ano.min()), int(H.ano.max())
 
@@ -117,7 +128,9 @@ ANO_MIN_SAUDE, ANO_MAX_SAUDE = int(H.ano.min()), int(H.ano.max())
 # 3. AMBIENTE — atmosfera anual (BR-DWGD/MapBiomas) + cobertura do solo
 # ---------------------------------------------------------------------------
 A=pd.read_csv(os.path.join(RAW,'mapbiomas_atmosfera_municipios_MT_1985_2024.csv'))
-A['cod']=A.geocode.astype(int); A['ano']=A.ano.astype(int); A['valor']=A.valor.astype(float)
+A['cod']=A.territorio.map(cod_por_nome)
+A=A[A.cod.notna()].copy(); A['cod']=A.cod.astype(int)
+A['ano']=A.ano.astype(int); A['valor']=A.valor.astype(float)
 
 VAR_MAP = {  # chave bruta -> (id curto, rótulo, unidade)
  'atmosphere_annual_mean_air_temperature':('temp_media','Temperatura média do ar','°C'),
@@ -138,7 +151,9 @@ A=A[A.vid.notna()]
 # cobertura do solo
 L=pd.read_csv(os.path.join(RAW,'mapbiomas_cobertura_uso_terra_municipios_MT_1985_2024.csv'))
 L.columns=[c.strip().replace('﻿','') for c in L.columns]
-L['cod']=L.geocode.astype(int); L['ano']=L.ano.astype(int); L['area_ha']=L.area_ha.astype(float)
+L['cod']=L.territorio.map(cod_por_nome)
+L=L[L.cod.notna()].copy(); L['cod']=L.cod.astype(int)
+L['ano']=L.ano.astype(int); L['area_ha']=L.area_ha.astype(float)
 
 # agrupa as 25 classes em macro-classes interpretáveis
 MACRO = {
@@ -153,6 +168,27 @@ MACRO = {
 }
 classe2macro={c:m for m,cs in MACRO.items() for c in cs}
 L['macro']=L.classe.map(classe2macro).fillna('outros')
+
+# atmosfera MENSAL (para climatologia/sazonalidade ambiental)
+M=pd.read_csv(os.path.join(RAW,'mapbiomas_atmosfera_mensal_municipios_MT_1985_2024.csv'))
+M['cod']=M.territorio.map(cod_por_nome)
+M=M[M.cod.notna()].copy(); M['cod']=M.cod.astype(int)
+M['ano']=M.ano.astype(int); M['mes']=M.mes.astype(int); M['valor']=M.valor.astype(float)
+VAR_MAP_MENSAL={
+ 'atmosphere_monthly_mean_air_temperature':'temp_media',
+ 'atmosphere_monthly_maximum_air_temperature':'temp_max',
+ 'atmosphere_monthly_minimum_air_temperature':'temp_min',
+ 'atmosphere_monthly_mean_land_surface_temperature':'temp_sup',
+ 'atmosphere_monthly_precipitation':'precip',
+ 'atmosphere_monthly_number_of_days_without_rain':'dias_sem_chuva',
+ 'atmosphere_monthly_number_of_days_with_persistent_rain':'dias_chuva',
+ 'atmosphere_monthly_water_availability':'disp_agua',
+ 'atmosphere_monthly_vapor_pressure_deficit':'vpd',
+ 'atmosphere_monthly_inhalable_particulate_matter_pm10':'pm10',
+ 'atmosphere_monthly_fine_particulate_matter_pm2_5':'pm25',
+}
+M['vid']=M.chave.map(VAR_MAP_MENSAL)
+M=M[M.vid.notna()]
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -202,6 +238,14 @@ hfull=(H.groupby(['cod','grupo_doenca','ano','mes'])['valor'].sum().reset_index(
 amb_anual={}
 for (cod,vid),g in A.groupby(['cod','vid']):
     amb_anual.setdefault(int(cod),{})[vid]={int(r.ano):r2(r.valor) for _,r in g.iterrows()}
+
+# climatologia mensal ambiental: cod -> vid -> [12 médias mensais]
+amb_sazonal={}
+mclim=M.groupby(['cod','vid','mes'])['valor'].mean().reset_index()
+for (cod,vid),g in mclim.groupby(['cod','vid']):
+    arr=[None]*12
+    for _,r in g.iterrows(): arr[int(r.mes)-1]=r2(r.valor)
+    amb_sazonal.setdefault(int(cod),{})[vid]=arr
 
 # cobertura do solo: macro-classe -> {ano: area_ha} e composição % recente
 land=(L.groupby(['cod','macro','ano'])['area_ha'].sum().reset_index())
@@ -455,6 +499,7 @@ DADOS=dict(
     saude_sazonal=saude_sazonal,
     saude_mensal=hfull_d,
     amb_anual=amb_anual,
+    amb_sazonal=amb_sazonal,
     cobertura=cobertura,
     correl=correl, correl_reg=correl_reg,
     prioridade=prioridade,
