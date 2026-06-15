@@ -115,7 +115,7 @@ const CH = (() => {
   function corrHeatmap(el, xCats, yCats, data, opt={}){
     return heatmap(el,xCats,yCats,data,{
       min:-1,max:1,showLabel:true,
-      labelFmt:p=>p.data[2]==null?'':p.data[2].toFixed(2),
+      labelFmt:opt.labelFmt||(p=>p.data[2]==null?'':p.data[2].toFixed(2)),
       colors:['#1c6dd0','#7fb3e8','#eef2f4','#f3a0b8','#c0142c'],
       tip:opt.tip, rotate:opt.rotate||32, bottom:opt.bottom||66, left:opt.left||8, vmBottom:0
     });
@@ -207,8 +207,8 @@ const CH = (() => {
       tooltip:{trigger:'item',backgroundColor:'rgba(19,33,43,.94)',borderWidth:0,
         textStyle:{color:'#fff',fontSize:12.5},padding:[9,13],extraCssText:'border-radius:9px',
         formatter:p=>{ if(p.dataType==='edge'){
-            return `${p.data.source} → ${p.data.target}<br>Força da ligação: <b>${(p.data.realr>0?'+':'')}${p.data.realr}</b> (${p.data.realr>0?'positiva':'negativa'})`;
-          } return `<b>${p.name}</b><br>${p.value? 'Força total: '+p.value.toFixed(0):''}`; }},
+            return `${p.data.source} → ${p.data.target}<br>Correlação: <b>${(p.data.realr>0?'+':'')}${p.data.realr}</b> (${p.data.realr>0?'positiva':'negativa'})${p.data.realp!=null?'<br>p = <b>'+p.data.realp+'</b>'+(p.data.realn?' · n='+p.data.realn:''):''}`;
+          } return `<b>${p.name}</b>`; }},
       series:[{
         type:'sankey', left:14, right:opt.right||150, top:14, bottom:14,
         draggable:true, nodeWidth:16, nodeGap:11,

@@ -897,15 +897,23 @@ function pearson(xs,ys){ // arrays alinhados, ignora pares com null
   const mx=X.reduce((a,b)=>a+b,0)/n, my=Y.reduce((a,b)=>a+b,0)/n;
   let sxy=0,sxx=0,syy=0; for(let i=0;i<n;i++){const dx=X[i]-mx,dy=Y[i]-my;sxy+=dx*dy;sxx+=dx*dx;syy+=dy*dy;}
   if(sxx===0||syy===0) return null;
-  return {r:+(sxy/Math.sqrt(sxx*syy)).toFixed(2), n};
+  const r=+(sxy/Math.sqrt(sxx*syy)).toFixed(2);
+  return {r, n, p: pPearson(r,n)};
 }
+// p-valor bicaudal da correlação de Pearson via distribuição t de Student
+function _gammaln(x){const c=[76.18009172947146,-86.50532032941677,24.01409824083091,-1.231739572450155,0.1208650973866179e-2,-0.5395239384953e-5];let y=x,tmp=x+5.5;tmp-=(x+0.5)*Math.log(tmp);let ser=1.000000000190015;for(let j=0;j<6;j++){y++;ser+=c[j]/y;}return -tmp+Math.log(2.5066282746310005*ser/x);}
+function _betacf(a,b,x){const MAXIT=200,EPS=3e-7,FPMIN=1e-30;let qab=a+b,qap=a+1,qam=a-1,c=1,d=1-qab*x/qap;if(Math.abs(d)<FPMIN)d=FPMIN;d=1/d;let h=d;for(let m=1;m<=MAXIT;m++){let m2=2*m,aa=m*(b-m)*x/((qam+m2)*(a+m2));d=1+aa*d;if(Math.abs(d)<FPMIN)d=FPMIN;c=1+aa/c;if(Math.abs(c)<FPMIN)c=FPMIN;d=1/d;h*=d*c;aa=-(a+m)*(qab+m)*x/((a+m2)*(qap+m2));d=1+aa*d;if(Math.abs(d)<FPMIN)d=FPMIN;c=1+aa/c;if(Math.abs(c)<FPMIN)c=FPMIN;d=1/d;const del=d*c;h*=del;if(Math.abs(del-1)<EPS)break;}return h;}
+function _betai(a,b,x){if(x<=0)return 0;if(x>=1)return 1;const bt=Math.exp(_gammaln(a+b)-_gammaln(a)-_gammaln(b)+a*Math.log(x)+b*Math.log(1-x));return x<(a+1)/(a+b+2)?bt*_betacf(a,b,x)/a:1-bt*_betacf(b,a,1-x)/b;}
+function pPearson(r,n){ if(r==null||n<3)return null; if(Math.abs(r)>=1)return 0; const df=n-2,t2=r*r*df/(1-r*r); return +_betai(df/2,0.5,df/(df+t2)).toFixed(3); }
 const ENV_CORR=['temp_media','temp_max','pm25','pm10','precip','dias_sem_chuva','disp_agua','vpd'];
-const stCo={scope:0,gran:'mensal'};
+const stCo={scope:0,gran:'mensal',sig:0.10};
+const SIG_LABEL={0.05:'p ≤ 0,05 (confirmatória)',0.10:'p ≤ 0,10',0.15:'p ≤ 0,15 (exploratória)',1:'sem filtro de p'};
 function renderCorrel(root){
   root.innerHTML=`
-  <div class="section-desc">Quantifica as <b>relações estatísticas</b> entre agravos e variáveis ambientais (correlação de Pearson). No modo <b>Sazonal mensal</b>, comparamos o padrão dos 12 meses (ex.: o pico de dengue acompanha o pico de chuva?); no modo <b>Anual</b>, comparamos as séries ano a ano. +1 (vermelho) ou −1 (azul) = associação forte. <b>Correlação não prova causalidade.</b></div>
+  <div class="section-desc">Quantifica as <b>relações estatísticas</b> entre agravos e variáveis ambientais (correlação de Pearson, com p-valor). No modo <b>Sazonal mensal</b>, comparamos o padrão dos 12 meses (ex.: o pico de dengue acompanha o de chuva?); no modo <b>Anual</b>, comparamos as séries ano a ano. ⚠️ Com poucos pontos (n=12 meses ou n≈15 anos) o poder estatístico é baixo — trate como <b>triagem exploratória</b>, não confirmatória. <b>Correlação não prova causalidade.</b></div>
   <div class="toolbar">
     <label class="muted">Escopo:</label><select id="coScope"><option value="0">Regional (agregado)</option></select>
+    <label class="muted">Significância:</label><select id="coSig"></select>
     <div class="grow"></div>
     <label class="muted">Tipo de relação:</label>${pillset('coGran',[{v:'mensal',label:'📅 Sazonal mensal (12 meses)'},{v:'anual',label:'📈 Anual (ano a ano)'}],stCo.gran)}
   </div>
@@ -919,7 +927,7 @@ function renderCorrel(root){
   </div>
   <div class="grid g2">
     <div class="card"><div class="card-head"><div><h3>🏆 Relações mais fortes</h3>
-      <div class="card-sub">|r| ≥ 0,5 ordenadas por magnitude</div></div></div>
+      <div class="card-sub" id="coTblSub">significativas, ordenadas por magnitude</div></div></div>
       <div class="scroll-x"><table class="data" id="coTbl"></table></div></div>
     <div class="card"><div class="card-head"><div><h3>📉 Explorar relação</h3>
       <div class="card-sub" id="coScSub">Cada ponto é um mês</div></div>
@@ -929,50 +937,56 @@ function renderCorrel(root){
   </div>
   <div class="card" style="margin-top:18px">
     <div class="card-head"><div><h3>🌐 Síntese — principais ligações Saúde ↔ Ambiente (Sankey)</h3>
-    <div class="card-sub" id="coSkSub"></div></div>
-    <label class="muted">Força mínima |r|: <select id="coSkMin"><option value="0.4">0,4</option><option value="0.5" selected>0,5</option><option value="0.6">0,6</option><option value="0.7">0,7</option></select></label></div>
+    <div class="card-sub" id="coSkSub"></div></div></div>
     <div id="coSankey" style="width:100%;height:560px"></div>
-    <div class="hint"><span class="i">🖱️</span> Arraste os nós (cima/baixo) para reorganizar. Passe o mouse ou clique num nó para destacar suas ligações; a espessura indica a força. Vermelho = relação positiva, azul = negativa.</div>
+    <div class="hint"><span class="i">🖱️</span> Arraste os nós (cima/baixo) para reorganizar. Passe o mouse ou clique num nó para destacar suas ligações; espessura = força (|r|); cor = sinal (vermelho positivo, azul negativo). Mostra apenas ligações dentro do filtro de significância escolhido acima.</div>
   </div>`;
   const scope=document.getElementById('coScope');
   D.meta.municipios.forEach(m=>scope.add(new Option(m.nome,m.cod)));
   scope.value=stCo.scope;
+  const sigSel=document.getElementById('coSig');
+  Object.keys(SIG_LABEL).forEach(v=>sigSel.add(new Option(SIG_LABEL[v],v))); sigSel.value=String(stCo.sig);
   scope.onchange=()=>{stCo.scope=+scope.value;drawAll();};
+  sigSel.onchange=()=>{stCo.sig=parseFloat(sigSel.value);drawAll();};
   bindPills('coGran',v=>{stCo.gran=v;drawAll();});
 
-  // matriz de correlação no modo atual -> {grupo:{var:{r,n}}}
+  // matriz de correlação no modo atual -> {grupo:{var:{r,n,p}}}
   function matriz(scope,gran){
     const M={}; const grupos=Object.keys(G);
     grupos.forEach(g=>{ M[g]={};
       ENV_CORR.forEach(v=>{
         let c;
         if(gran==='mensal'){ c=pearson(saudeMensalClimEscopo(scope,g), ambMensalClimEscopo(scope,v)); }
-        else { // anual: usa precomputado quando regional/município
+        else { // anual: usa precomputado (Pearson com p) quando regional/município
           const pre = scope? ((D.correl[scope]||{})[g]||{})[v] : (D.correl_reg[g]||{})[v];
-          c = pre? {r:pre.r,n:pre.n} : null;
+          c = pre? {r:pre.r,n:pre.n,p:pre.p} : null;
         }
         if(c) M[g][v]=c;
       });
     });
     return M;
   }
+  const sigOk=o=>o&&o.r!=null&&(stCo.sig>=1 || (o.p!=null&&o.p<=stCo.sig));
   function drawAll(){
     if(!document.getElementById('coHeat'))return;
-    const {scope:sc,gran}=stCo;
-    document.getElementById('coSub').textContent = (gran==='mensal'?'Correlação do padrão mensal (climatologia, n=12 meses)':'Correlação das séries anuais')+' · '+nomeEscopo(sc);
+    const {scope:sc,gran,sig}=stCo;
+    document.getElementById('coSub').textContent = (gran==='mensal'?'Correlação do padrão mensal (climatologia, n=12 meses)':'Correlação das séries anuais (n≈15)')+' · '+nomeEscopo(sc)+' · células com * são significativas ('+SIG_LABEL[sig]+')';
     document.getElementById('coScSub').textContent = gran==='mensal'?'Cada ponto é um mês (climatologia)':'Cada ponto é um ano';
+    document.getElementById('coTblSub').textContent = 'significativas ('+SIG_LABEL[sig]+'), ordenadas por |r|';
     const C=matriz(sc,gran);
     const grps=Object.keys(C).filter(g=>ENV_CORR.some(v=>C[g][v]));
     const cells=[]; grps.forEach((g,gi)=>ENV_CORR.forEach((v,vi)=>{const o=C[g][v];cells.push([vi,gi,o?o.r:null]);}));
     const inst=echarts.getInstanceByDom(document.getElementById('coHeat')); if(inst)inst.dispose();
     CH.corrHeatmap('coHeat',ENV_CORR.map(v=>VARS[v].label),grps.map(g=>G[g].label),cells,
-      {bottom:70,left:8,tip:p=>{const o=(C[grps[p.data[1]]]||{})[ENV_CORR[p.data[0]]];
-        return `${G[grps[p.data[1]]].label} × ${VARS[ENV_CORR[p.data[0]]].label}<br>r = <b>${p.data[2]==null?'—':p.data[2]}</b>${o?' · n='+o.n:''}`;}});
-    const rows=[]; grps.forEach(g=>ENV_CORR.forEach(v=>{const o=C[g][v];if(o&&o.r!=null&&Math.abs(o.r)>=0.5)rows.push({g,v,...o});}));
+      {bottom:70,left:8,
+       labelFmt:p=>{if(p.data[2]==null)return '';const o=(C[grps[p.data[1]]]||{})[ENV_CORR[p.data[0]]];return p.data[2].toFixed(2)+(sigOk(o)?'*':'');},
+       tip:p=>{const o=(C[grps[p.data[1]]]||{})[ENV_CORR[p.data[0]]];
+        return `${G[grps[p.data[1]]].label} × ${VARS[ENV_CORR[p.data[0]]].label}<br>r = <b>${p.data[2]==null?'—':p.data[2]}</b>${o&&o.p!=null?' · p = <b>'+o.p+'</b>':''}${o?' · n='+o.n:''}${sigOk(o)?' ✓ significativa':''}`;}});
+    const rows=[]; grps.forEach(g=>ENV_CORR.forEach(v=>{const o=C[g][v];if(sigOk(o))rows.push({g,v,...o});}));
     rows.sort((a,b)=>Math.abs(b.r)-Math.abs(a.r));
-    document.getElementById('coTbl').innerHTML=`<thead><tr><th>Agravo</th><th>Variável ambiental</th><th>r</th><th>n</th></tr></thead><tbody>${
-      rows.slice(0,18).map(r=>`<tr><td>${G[r.g].label}</td><td>${VARS[r.v].label}</td>
-        <td class="num" style="color:${r.r>0?'#c0142c':'#1c6dd0'}">${r.r}</td><td class="num">${r.n}</td></tr>`).join('')||'<tr><td colspan="4" class="muted">Nenhuma relação forte (|r|≥0,5).</td></tr>'}</tbody>`;
+    document.getElementById('coTbl').innerHTML=`<thead><tr><th>Agravo</th><th>Variável ambiental</th><th>r</th><th>p</th><th>n</th></tr></thead><tbody>${
+      rows.slice(0,20).map(r=>`<tr><td>${G[r.g].label}</td><td>${VARS[r.v].label}</td>
+        <td class="num" style="color:${r.r>0?'#c0142c':'#1c6dd0'}">${r.r}</td><td class="num">${r.p??'—'}</td><td class="num">${r.n}</td></tr>`).join('')||'<tr><td colspan="5" class="muted">Nenhuma relação dentro do filtro de significância. Relaxe o critério (ex.: p ≤ 0,15).</td></tr>'}</tbody>`;
     const cg=document.getElementById('coG'),cv=document.getElementById('coV');
     cg.innerHTML='';cv.innerHTML='';
     grps.forEach(g=>cg.add(new Option(G[g].label,g))); ENV_CORR.forEach(v=>cv.add(new Option(VARS[v].label,v)));
@@ -981,26 +995,23 @@ function renderCorrel(root){
     drawSankey(C);
   }
   function drawSankey(C){
-    const sc=stCo.scope, gran=stCo.gran;
-    const minR=parseFloat(document.getElementById('coSkMin').value);
-    document.getElementById('coSkSub').textContent=`${gran==='mensal'?'Relações sazonais mensais':'Relações anuais'} · ${nomeEscopo(sc)} · ligações com |r| ≥ ${minR.toString().replace('.',',')}`;
-    // monta nós e ligações (ambiente -> saúde)
+    const sc=stCo.scope, gran=stCo.gran, sig=stCo.sig;
+    document.getElementById('coSkSub').textContent=`${gran==='mensal'?'Relações sazonais mensais':'Relações anuais'} · ${nomeEscopo(sc)} · ${SIG_LABEL[sig]}`;
     const usedV=new Set(), usedG=new Set(), links=[];
     Object.keys(C).forEach(g=>ENV_CORR.forEach(v=>{const o=C[g][v];
-      if(o&&o.r!=null&&Math.abs(o.r)>=minR){
+      if(sigOk(o)){
         const sName='🌎 '+VARS[v].label, tName='🏥 '+G[g].label;
         usedV.add(v); usedG.add(g);
-        links.push({source:sName,target:tName,value:+(Math.abs(o.r)*100).toFixed(0),realr:o.r,
+        links.push({source:sName,target:tName,value:+(Math.abs(o.r)*100).toFixed(0),realr:o.r,realp:o.p,realn:o.n,
           lineStyle:{color:o.r>0?'rgba(192,20,44,.45)':'rgba(28,109,208,.45)'}});
       }}));
     const nodes=[...[...usedV].map(v=>({name:'🌎 '+VARS[v].label,itemStyle:{color:'#0e7c7b'}})),
                  ...[...usedG].map(g=>({name:'🏥 '+G[g].label,itemStyle:{color:G[g].cor}}))];
     const sk=echarts.getInstanceByDom(document.getElementById('coSankey')); if(sk)sk.dispose();
-    if(!links.length){ document.getElementById('coSankey').innerHTML='<div class="loader" style="height:100%"><div class="muted">Nenhuma ligação com força ≥ '+minR+'. Reduza o limite.</div></div>'; return; }
+    if(!links.length){ document.getElementById('coSankey').innerHTML='<div class="loader" style="height:100%"><div class="muted">Nenhuma ligação significativa neste filtro. Tente p ≤ 0,15 (exploratória) ou troque o escopo.</div></div>'; return; }
     document.getElementById('coSankey').innerHTML='';
     CH.sankey('coSankey',nodes,links,{right:170});
   }
-  document.getElementById('coSkMin').onchange=()=>drawAll();
   function drawScatter(){
     const {scope:sc,gran}=stCo; const g=document.getElementById('coG').value, v=document.getElementById('coV').value;
     if(!g||!v||!G[g]||!VARS[v]) return;
