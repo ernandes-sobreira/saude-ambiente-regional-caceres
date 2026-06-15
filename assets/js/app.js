@@ -93,6 +93,12 @@ function ambAnualEscopo(scope,vid){ // média entre municípios -> {ano:val}
     for(const a in d){acc[a]=(acc[a]||0)+d[a];cnt[a]=(cnt[a]||0)+1;} }
   const out={}; for(const a in acc) out[a]=+(acc[a]/cnt[a]).toFixed(2); return out;
 }
+function obitosAnualEscopo(scope,ogrupo){ // óbitos SIM somados no escopo -> {ano:val}
+  const out={};
+  for(const cod of codsDoEscopo(scope)){ const d=(D.obitos_anual[cod]||{})[ogrupo]||{};
+    for(const a in d) out[a]=(out[a]||0)+d[a]; }
+  return out;
+}
 // helper de pílulas (toggle) reutilizável
 function pillset(id,opts,active){ // opts:[{v,label}]
   return `<div class="pillset" id="${id}">${opts.map(o=>`<button data-v="${o.v}" class="${o.v===active?'active':''}">${o.label}</button>`).join('')}</div>`;
@@ -165,8 +171,8 @@ function renderOverview(root){
   root.innerHTML = `
   <div class="grid g4" style="margin-bottom:18px">
     ${kpi('População da regional', f0(r.pop_total),'hab', `${r.n_municipios} municípios · IBGE Censo 2022`,'👥','#0e7c7b')}
-    ${kpi('Internações (SIH/SUS)', f0(r.total_internacoes),'', `${r.ano_min}–${r.ano_max} · ${r.n_grupos} grupos de agravos`,'🏥','#1c6dd0')}
-    ${kpi('Óbitos registrados (SIM)', f0(r.total_obitos),'', `Neoplasias · ${r.ano_min}–${r.ano_max}`,'🕯️','#6741d9')}
+    ${kpi('Internações (SIH/SUS)', f0(r.total_internacoes),'', `${r.ano_min}–${r.ano_max} · ${r.n_grupos} grupos · por residência`,'🏥','#1c6dd0')}
+    ${kpi('Óbitos registrados (SIM)', f0(r.total_obitos),'', `8 categorias · ${r.ano_min}–${r.ano_max_obito}`,'🕯️','#6741d9')}
     ${kpi('Municípios em prioridade alta+', critCount,'', `de ${r.n_municipios} · necessitam atenção reforçada`,'🎯','#e8590c')}
   </div>
 
@@ -361,6 +367,9 @@ function renderSaude(root){
     ${chartCard('🧬 Composição por agravo','Participação de cada grupo (escopo selecionado)','sdDonut','lg')}
     ${chartCard('🗓️ Sazonalidade / Heatmap','Padrão temporal do agravo selecionado','sdHeat','lg')}
   </div>
+  <div class="card" style="margin-top:18px"><div class="card-head"><div><h3>🕯️ Óbitos (SIM) por categoria</h3>
+    <div class="card-sub">Mortalidade anual por residência (${D.resumo.ano_min}–${D.resumo.ano_max_obito}) · inclui doenças infecciosas/parasitárias</div></div></div>
+    <div id="sdObito" class="chart lg"></div></div>
   <div class="card" style="margin-top:18px">
     <div class="card-head"><div><h3>📋 Tabela de agravos (escopo selecionado)</h3>
     <div class="card-sub">Clique no cabeçalho para ordenar</div></div></div>
@@ -428,6 +437,12 @@ function renderSaude(root){
       gs.forEach((g,gi)=>{const s=saudeMensalClimEscopo(sc,g);for(let mi=0;mi<12;mi++)cells.push([mi,gi,s[mi]]);});
       CH.heatmap('sdHeat',MESES,gs.map(g=>G[g].label.length>18?G[g].label.slice(0,17)+'…':G[g].label),cells,{inverse:true,bottom:50,tip:p=>`${G[gs[p.data[1]]].label} · ${MESES[p.data[0]]}<br><b>${p.data[2]}</b>/mês`});
     }
+    // óbitos por categoria (empilhado por ano)
+    const obCats=Object.keys(D.meta.obito_grupos);
+    const anosOb=[]; for(let a=D.resumo.ano_min;a<=D.resumo.ano_max_obito;a++)anosOb.push(a);
+    const obi=echarts.getInstanceByDom(document.getElementById('sdObito')); if(obi)obi.dispose();
+    CH.bar('sdObito',anosOb.map(String),obCats.map((oc,i)=>({name:D.meta.obito_grupos[oc],color:CH.PAL[i%12],
+      data:anosOb.map(a=>obitosAnualEscopo(sc,oc)[a]||0)})),{stack:true});
     // tabela
     buildSaudeTbl(sc,sis);
   }
@@ -827,71 +842,111 @@ function renderSazonal(root){
 }
 
 /* ================================================================
-   6. SAÚDE × AMBIENTE (correlações)
+   6. SAÚDE × AMBIENTE (correlações anuais E sazonais mensais)
    ================================================================ */
+function pearson(xs,ys){ // arrays alinhados, ignora pares com null
+  const X=[],Y=[]; for(let i=0;i<xs.length;i++){if(xs[i]!=null&&ys[i]!=null){X.push(+xs[i]);Y.push(+ys[i]);}}
+  const n=X.length; if(n<4) return null;
+  const mx=X.reduce((a,b)=>a+b,0)/n, my=Y.reduce((a,b)=>a+b,0)/n;
+  let sxy=0,sxx=0,syy=0; for(let i=0;i<n;i++){const dx=X[i]-mx,dy=Y[i]-my;sxy+=dx*dy;sxx+=dx*dx;syy+=dy*dy;}
+  if(sxx===0||syy===0) return null;
+  return {r:+(sxy/Math.sqrt(sxx*syy)).toFixed(2), n};
+}
+const ENV_CORR=['temp_media','temp_max','pm25','pm10','precip','dias_sem_chuva','disp_agua','vpd'];
+const stCo={scope:0,gran:'mensal'};
 function renderCorrel(root){
   root.innerHTML=`
-  <div class="section-desc">Esta seção quantifica as <b>relações estatísticas</b> entre agravos de saúde e variáveis ambientais (correlação de Pearson, séries anuais). Valores próximos de +1 (vermelho) ou −1 (azul) indicam associação forte. <b>Correlação não prova causalidade</b>, mas aponta hipóteses e sinais de alerta precoce.</div>
+  <div class="section-desc">Quantifica as <b>relações estatísticas</b> entre agravos e variáveis ambientais (correlação de Pearson). No modo <b>Sazonal mensal</b>, comparamos o padrão dos 12 meses (ex.: o pico de dengue acompanha o pico de chuva?); no modo <b>Anual</b>, comparamos as séries ano a ano. +1 (vermelho) ou −1 (azul) = associação forte. <b>Correlação não prova causalidade.</b></div>
   <div class="toolbar">
-    <label class="muted">Escopo:</label>
-    <select id="coScope"><option value="0">Regional (agregado)</option></select>
+    <label class="muted">Escopo:</label><select id="coScope"><option value="0">Regional (agregado)</option></select>
+    <div class="grow"></div>
+    <label class="muted">Tipo de relação:</label>${pillset('coGran',[{v:'mensal',label:'📅 Sazonal mensal (12 meses)'},{v:'anual',label:'📈 Anual (ano a ano)'}],stCo.gran)}
   </div>
   <div class="card" style="margin-bottom:18px">
     <div class="card-head"><div><h3>🔗 Matriz de correlação saúde × ambiente</h3>
-    <div class="card-sub">Linhas = grupos de doença · Colunas = variáveis ambientais</div></div></div>
+    <div class="card-sub" id="coSub"></div></div></div>
     <div id="coHeat" class="chart xl"></div>
     <div class="legend-row"><span><span class="dot" style="background:#c0142c"></span> Correlação positiva (sobem juntos)</span>
       <span><span class="dot" style="background:#eef2f4;border:1px solid #ccc"></span> Sem relação</span>
       <span><span class="dot" style="background:#1c6dd0"></span> Correlação negativa (sentido oposto)</span></div>
   </div>
   <div class="grid g2">
-    <div class="card"><div class="card-head"><div><h3>🏆 Relações mais fortes detectadas</h3>
+    <div class="card"><div class="card-head"><div><h3>🏆 Relações mais fortes</h3>
       <div class="card-sub">|r| ≥ 0,5 ordenadas por magnitude</div></div></div>
       <div class="scroll-x"><table class="data" id="coTbl"></table></div></div>
-    <div class="card"><div class="card-head"><div><h3>📉 Dispersão (explorar relação)</h3>
-      <div class="card-sub">Cada ponto é um ano</div></div>
+    <div class="card"><div class="card-head"><div><h3>📉 Explorar relação</h3>
+      <div class="card-sub" id="coScSub">Cada ponto é um mês</div></div>
       <div style="display:flex;gap:8px"><select id="coG"></select><select id="coV"></select></div></div>
-      <div id="coScatter" class="chart lg"></div></div>
+      <div id="coScatter" class="chart lg"></div>
+      <div id="coDual" class="chart sm" style="margin-top:8px"></div></div>
   </div>`;
   const scope=document.getElementById('coScope');
   D.meta.municipios.forEach(m=>scope.add(new Option(m.nome,m.cod)));
-  const ENV=['temp_media','temp_max','pm25','pm10','precip','dias_sem_chuva','disp_agua','vpd'];
-  const drawAll=()=>{
-    const cod=+scope.value||0;
-    const C = cod? (D.correl[cod]||{}) : D.correl_reg;
-    const grps=Object.keys(C).filter(g=>ENV.some(v=>C[g][v]));
-    const cells=[]; grps.forEach((g,gi)=>ENV.forEach((v,vi)=>{const o=C[g][v];cells.push([vi,gi,o?o.r:null]);}));
+  scope.value=stCo.scope;
+  scope.onchange=()=>{stCo.scope=+scope.value;drawAll();};
+  bindPills('coGran',v=>{stCo.gran=v;drawAll();});
+
+  // matriz de correlação no modo atual -> {grupo:{var:{r,n}}}
+  function matriz(scope,gran){
+    const M={}; const grupos=Object.keys(G);
+    grupos.forEach(g=>{ M[g]={};
+      ENV_CORR.forEach(v=>{
+        let c;
+        if(gran==='mensal'){ c=pearson(saudeMensalClimEscopo(scope,g), ambMensalClimEscopo(scope,v)); }
+        else { // anual: usa precomputado quando regional/município
+          const pre = scope? ((D.correl[scope]||{})[g]||{})[v] : (D.correl_reg[g]||{})[v];
+          c = pre? {r:pre.r,n:pre.n} : null;
+        }
+        if(c) M[g][v]=c;
+      });
+    });
+    return M;
+  }
+  function drawAll(){
+    if(!document.getElementById('coHeat'))return;
+    const {scope:sc,gran}=stCo;
+    document.getElementById('coSub').textContent = (gran==='mensal'?'Correlação do padrão mensal (climatologia, n=12 meses)':'Correlação das séries anuais')+' · '+nomeEscopo(sc);
+    document.getElementById('coScSub').textContent = gran==='mensal'?'Cada ponto é um mês (climatologia)':'Cada ponto é um ano';
+    const C=matriz(sc,gran);
+    const grps=Object.keys(C).filter(g=>ENV_CORR.some(v=>C[g][v]));
+    const cells=[]; grps.forEach((g,gi)=>ENV_CORR.forEach((v,vi)=>{const o=C[g][v];cells.push([vi,gi,o?o.r:null]);}));
     const inst=echarts.getInstanceByDom(document.getElementById('coHeat')); if(inst)inst.dispose();
-    CH.corrHeatmap('coHeat',ENV.map(v=>VARS[v].label),grps.map(g=>G[g].label),cells,
-      {bottom:70,left:8,tip:p=>{const o=(C[grps[p.data[1]]]||{})[ENV[p.data[0]]];
-        return `${G[grps[p.data[1]]].label} × ${VARS[ENV[p.data[0]]].label}<br>r = <b>${p.data[2]==null?'—':p.data[2]}</b>${o&&o.p!=null?' · p='+o.p:''}${o?' · n='+o.n:''}`;}});
-    // table fortes
-    const rows=[]; grps.forEach(g=>ENV.forEach(v=>{const o=C[g][v];if(o&&o.r!=null&&Math.abs(o.r)>=0.5)rows.push({g,v,...o});}));
+    CH.corrHeatmap('coHeat',ENV_CORR.map(v=>VARS[v].label),grps.map(g=>G[g].label),cells,
+      {bottom:70,left:8,tip:p=>{const o=(C[grps[p.data[1]]]||{})[ENV_CORR[p.data[0]]];
+        return `${G[grps[p.data[1]]].label} × ${VARS[ENV_CORR[p.data[0]]].label}<br>r = <b>${p.data[2]==null?'—':p.data[2]}</b>${o?' · n='+o.n:''}`;}});
+    const rows=[]; grps.forEach(g=>ENV_CORR.forEach(v=>{const o=C[g][v];if(o&&o.r!=null&&Math.abs(o.r)>=0.5)rows.push({g,v,...o});}));
     rows.sort((a,b)=>Math.abs(b.r)-Math.abs(a.r));
-    document.getElementById('coTbl').innerHTML=`<thead><tr><th>Agravo</th><th>Variável ambiental</th><th>r</th><th>p</th><th>n</th></tr></thead><tbody>${
+    document.getElementById('coTbl').innerHTML=`<thead><tr><th>Agravo</th><th>Variável ambiental</th><th>r</th><th>n</th></tr></thead><tbody>${
       rows.slice(0,18).map(r=>`<tr><td>${G[r.g].label}</td><td>${VARS[r.v].label}</td>
-        <td class="num" style="color:${r.r>0?'#c0142c':'#1c6dd0'}">${r.r}</td>
-        <td class="num">${r.p??'—'}</td><td class="num">${r.n}</td></tr>`).join('')||'<tr><td colspan="5" class="muted">Nenhuma relação forte (|r|≥0,5) detectada.</td></tr>'}</tbody>`;
-    // scatter selectors
+        <td class="num" style="color:${r.r>0?'#c0142c':'#1c6dd0'}">${r.r}</td><td class="num">${r.n}</td></tr>`).join('')||'<tr><td colspan="4" class="muted">Nenhuma relação forte (|r|≥0,5).</td></tr>'}</tbody>`;
     const cg=document.getElementById('coG'),cv=document.getElementById('coV');
     cg.innerHTML='';cv.innerHTML='';
-    grps.forEach(g=>cg.add(new Option(G[g].label,g)));
-    ENV.forEach(v=>cv.add(new Option(VARS[v].label,v)));
+    grps.forEach(g=>cg.add(new Option(G[g].label,g))); ENV_CORR.forEach(v=>cv.add(new Option(VARS[v].label,v)));
     if(rows.length){cg.value=rows[0].g;cv.value=rows[0].v;}
     drawScatter();
-  };
-  const drawScatter=()=>{
-    const cod=+scope.value||0; const g=document.getElementById('coG').value, v=document.getElementById('coV').value;
+  }
+  function drawScatter(){
+    const {scope:sc,gran}=stCo; const g=document.getElementById('coG').value, v=document.getElementById('coV').value;
     if(!g||!v||!G[g]||!VARS[v]) return;
-    let sd, amb;
-    if(cod){ sd={}; const d=(D.saude_anual[cod]||{})[g]||{}; for(const a in d)sd[a]=(d[a].sih||0)+(d[a].sim||0); amb=(D.amb_anual[cod]||{})[v]||{}; }
-    else { sd=D.reg_saude[g]||{}; amb=D.reg_amb[v]||{}; }
-    const anos=Object.keys(sd).filter(a=>amb[a]!=null).map(Number).sort((a,b)=>a-b);
-    const pts=anos.map(a=>[amb[a],sd[a],String(a)]);
-    const inst=echarts.getInstanceByDom(document.getElementById('coScatter')); if(inst)inst.dispose();
-    CH.scatter('coScatter',pts,{xname:VARS[v].label+' ('+VARS[v].unidade+')',yname:G[g].label,color:G[g].cor});
-  };
-  scope.onchange=drawAll;
+    const si=echarts.getInstanceByDom(document.getElementById('coScatter')); if(si)si.dispose();
+    const di=echarts.getInstanceByDom(document.getElementById('coDual')); if(di)di.dispose();
+    if(gran==='mensal'){
+      const sa=saudeMensalClimEscopo(sc,g), am=ambMensalClimEscopo(sc,v);
+      const pts=[]; for(let i=0;i<12;i++) if(sa[i]!=null&&am[i]!=null) pts.push([am[i],sa[i],MESES[i]]);
+      CH.scatter('coScatter',pts,{xname:VARS[v].label+' ('+VARS[v].unidade+')',yname:G[g].label+' (casos/mês)',color:G[g].cor});
+      // dual de apoio: padrão mensal lado a lado
+      CH.line('coDual',MESES,[{name:G[g].label,color:G[g].cor,data:sa,yAxisIndex:0},
+        {name:VARS[v].label,color:'#1c6dd0',data:am,yAxisIndex:1}],{y2:true,yname:'casos',y2name:VARS[v].unidade,scale:true});
+    } else {
+      let sd={},amb={};
+      if(sc){ const d=(D.saude_anual[sc]||{})[g]||{}; for(const a in d)sd[a]=(d[a].sih||0)+(d[a].sim||0); amb=(D.amb_anual[sc]||{})[v]||{}; }
+      else { sd=D.reg_saude[g]||{}; amb=D.reg_amb[v]||{}; }
+      const anos=Object.keys(sd).filter(a=>amb[a]!=null).map(Number).sort((a,b)=>a-b);
+      CH.scatter('coScatter',anos.map(a=>[amb[a],sd[a],String(a)]),{xname:VARS[v].label+' ('+VARS[v].unidade+')',yname:G[g].label,color:G[g].cor});
+      CH.line('coDual',anos.map(String),[{name:G[g].label,color:G[g].cor,data:anos.map(a=>sd[a]),yAxisIndex:0},
+        {name:VARS[v].label,color:'#1c6dd0',data:anos.map(a=>amb[a]),yAxisIndex:1}],{y2:true,yname:'casos',y2name:VARS[v].unidade,scale:true});
+    }
+  }
   document.getElementById('coG').onchange=drawScatter;
   document.getElementById('coV').onchange=drawScatter;
   drawAll();
@@ -1044,8 +1099,8 @@ function renderSobre(root){
       <p style="font-size:14px;color:#445a66;line-height:1.6">Plataforma de inteligência territorial que integra dados de <b>saúde</b> (internações e óbitos) e <b>ambiente</b> (clima, qualidade do ar e uso da terra) dos ${r.n_municipios} municípios da Regional de Saúde de Cáceres (MT). Destina-se a <b>gestores públicos</b>, <b>técnicos de saúde</b>, <b>cientistas</b> e à <b>comunidade</b>, apoiando decisões baseadas em evidência sobre onde e como atuar.</p></div>
     <div class="card"><h3>🗂️ Fontes de dados</h3><div class="card-sub">Origem e período</div>
       <table class="data"><tbody>
-        <tr><td><b>Internações</b></td><td>SIH/SUS (DATASUS)</td><td class="num">${r.ano_min}–${r.ano_max}</td></tr>
-        <tr><td><b>Óbitos</b></td><td>SIM/DO (DATASUS)</td><td class="num">${r.ano_min}–${r.ano_max}</td></tr>
+        <tr><td><b>Internações</b> (mensal, por residência)</td><td>SIH/SUS (DATASUS)</td><td class="num">${r.ano_min}–${r.ano_max}</td></tr>
+        <tr><td><b>Óbitos</b> (anual, por residência)</td><td>SIM/DO (DATASUS)</td><td class="num">${r.ano_min}–${r.ano_max_obito}</td></tr>
         <tr><td><b>Clima / atmosfera</b></td><td>MapBiomas · BR-DWGD</td><td class="num">${r.amb_ano_min}–${r.amb_ano_max}</td></tr>
         <tr><td><b>Uso da terra</b></td><td>MapBiomas Coleção 9</td><td class="num">${r.amb_ano_min}–${r.amb_ano_max}</td></tr>
         <tr><td><b>População</b></td><td>IBGE Censo 2022</td><td class="num">2022</td></tr>

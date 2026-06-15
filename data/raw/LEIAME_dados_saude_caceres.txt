@@ -1,0 +1,45 @@
+# Dados de Saúde - Regional de Saúde de Cáceres (MT)
+# Extraídos do DATASUS - 15/06/2026
+
+## Municípios incluídos (14):
+Araputanga, Cáceres, Curvelândia, Figueirópolis d'Oeste, Glória d'Oeste,
+Indiavaí, Jauru, Lambari d'Oeste, Mirassol d'Oeste, Porto Esperidião,
+São José dos Quatro Marcos, Reserva do Cabaçal, Rio Branco, Salto do Céu
+
+## Formato dos arquivos CSV:
+municipio;codigo_ibge;ano;mes;valor;cid10;sistema;grupo_doenca
+(separador: ponto e vírgula)
+
+## Arquivos de INTERNAÇÕES (SIH/SUS) - 2010 a Abr/2026:
+- dengue.csv (A90-A99) - 375 linhas
+- malaria.csv (B50-B64) - 65 linhas
+- gastroenterites.csv (A00-A09) - 540 linhas
+- asma.csv (J45-J46) - 504 linhas
+- dpoc.csv (J40-J44) - 734 linhas
+- pneumonia.csv (J12-J18) - 1811 linhas
+- respiratorio.csv (J00-J99) - 2169 linhas
+- cardiovascular.csv (I00-I99) - 2211 linhas
+- neoplasias.csv (C00-D48) - 2017 linhas [SIH]
+- renal-urinario.csv (N00-N39) - 2134 linhas
+- desnutricao.csv (E40-E46) - 335 linhas
+- causas-externas.csv (V01-Y98) - 40 linhas
+- transtornos-mentais.csv (F00-F99) - 711 linhas
+- animais-peconhentos.csv (X20-X29) - 621 linhas
+
+## Arquivos de ÓBITOS (SIM/DO) - 2010 a 2024:
+Nota: dados anuais (mes=0 = total do ano)
+- neoplasias_SIM_anual.csv (C00-D48) - 205 linhas
+- infecciosas_SIM.csv (A00-B99) - 167 linhas [dengue, malaria, gastro]
+- cardiovascular_SIM.csv (I00-I99) - 210 linhas
+- respiratorio_SIM.csv (J00-J99) - 198 linhas
+- desnutricao_SIM.csv (E40-E46) - 180 linhas
+- transtornos-mentais_SIM.csv (F00-F99) - 97 linhas
+- renal-urinario_SIM.csv (N00-N39) - 149 linhas
+- causas-externas_SIM.csv (V01-Y98) - 201 linhas
+- animais-peconhentos_SIM.csv (X20-X29) - 201 linhas [mesmos dados de causas externas]
+
+## INSTRUÇÕES:
+1. Mova todos os arquivos .csv para a pasta:
+   C:\Users\Usuario\Downloads\paineldesaude-ers-caceres\
+2. Para integrar com a plataforma, use os dados conforme o formato do repositório:
+   https://github.com/ernandes-sobreira/saude-ambiente-regional-caceres

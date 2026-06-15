@@ -57,11 +57,29 @@ def cod_por_nome(nome):
     return NORM2COD.get(normalize(nome))
 
 # ---------------------------------------------------------------------------
-# 2. SAÚDE — unifica os 15 arquivos de doenças
+# 2. SAÚDE — internações (SIH, mensal 2010–2025) + óbitos (SIM, anual 2010–2024)
+#    Dados por MUNICÍPIO DE RESIDÊNCIA (cobertura completa dos 14 municípios).
 # ---------------------------------------------------------------------------
-HEALTH_FILES = ['animais-peconhentos','asma','cardiovascular','causas-externas',
+# arquivos de internação (SIH/SUS), mensais
+SIH_FILES = ['animais-peconhentos','asma','cardiovascular','causas-externas',
     'dengue','desnutricao','dpoc','gastroenterites','malaria','neoplasias',
-    'neoplasias2','pneumonia','renal-urinario','respiratorio','transtornos-mentais']
+    'pneumonia','renal-urinario','respiratorio','transtornos-mentais']
+# arquivos de óbitos (SIM/DO), anuais (mes=0 = total do ano). Mapeia nome->grupo SIM.
+SIM_FILES = {
+    'neoplasias_SIM_anual':'NEOPLASIAS', 'cardiovascular_SIM':'CARDIOVASCULAR',
+    'respiratorio_SIM':'RESPIRATORIO', 'renal-urinario_SIM':'RENAL_URINARIO',
+    'desnutricao_SIM':'DESNUTRICAO', 'transtornos-mentais_SIM':'TRANSTORNOS_MENTAIS',
+    'causas-externas_SIM':'CAUSAS_EXTERNAS', 'infecciosas_SIM':'INFECCIOSAS',
+}
+# normaliza nomes de grupo (arquivos usam hífens / nomes curtos) -> chave canônica
+GROUP_NORM = {
+    'DENGUE':'DENGUE', 'MALARIA':'LEISHMANIOSE_MALARIA',
+    'GASTROENTERITES':'DIARREICAS_GASTROENTERITES', 'ASMA':'ASMA', 'DPOC':'DPOC',
+    'PNEUMONIA':'PNEUMONIA', 'RESPIRATORIO':'RESPIRATORIO', 'CARDIOVASCULAR':'CARDIOVASCULAR',
+    'NEOPLASIAS':'NEOPLASIAS', 'RENAL-URINARIO':'RENAL_URINARIO', 'DESNUTRICAO':'DESNUTRICAO',
+    'CAUSAS-EXTERNAS':'CAUSAS_EXTERNAS', 'TRANSTORNOS-MENTAIS':'TRANSTORNOS_MENTAIS',
+    'ANIMAIS-PECONHENTOS':'ANIMAIS_PECONHENTOS',
+}
 
 # metadados de cada grupo de doença: rótulo amigável, eixo ambiental associado
 GRUPO_META = {
@@ -70,25 +88,25 @@ GRUPO_META = {
         desc='Arbovirose transmitida pelo Aedes aegypti. Fortemente sazonal e sensível a temperatura e chuvas (criadouros).'),
     'LEISHMANIOSE_MALARIA': dict(label='Malária / Leishmaniose', cat='Vetorial / Climática', cor='#c0392b',
         amb=['precip','temp_media','floresta'],
-        desc='Doenças vetoriais associadas a ambientes florestais/ribeirinhos, desmatamento e clima.'),
+        desc='Doenças vetoriais (B50-B64) associadas a ambientes florestais/ribeirinhos, desmatamento e clima.'),
     'DIARREICAS_GASTROENTERITES': dict(label='Diarreicas e Gastroenterites', cat='Hídrica / Saneamento', cor='#16a085',
         amb=['temp_media','disp_agua','precip'],
         desc='Doenças de veiculação hídrica/alimentar (CID A00-A09). Relacionadas a saneamento, água e temperatura.'),
     'ASMA': dict(label='Asma', cat='Respiratória / Ar', cor='#2980b9',
         amb=['pm25','pm10','dias_sem_chuva'],
-        desc='Doença respiratória crônica agravada por material particulado, fumaça de queimadas e ar seco.'),
+        desc='Doença respiratória crônica (J45-J46) agravada por material particulado, fumaça de queimadas e ar seco.'),
     'DPOC': dict(label='DPOC e outras respiratórias crônicas', cat='Respiratória / Ar', cor='#8e44ad',
         amb=['pm25','pm10','vpd'],
-        desc='Doença Pulmonar Obstrutiva Crônica. Exacerbações ligadas à poluição do ar e queimadas.'),
+        desc='Doença Pulmonar Obstrutiva Crônica (J40-J44). Exacerbações ligadas à poluição do ar e queimadas.'),
     'PNEUMONIA': dict(label='Pneumonia', cat='Respiratória / Ar', cor='#2c3e50',
         amb=['pm25','pm10','temp_media'],
-        desc='Infecção respiratória aguda. Incidência sobe com poluição do ar e variações climáticas.'),
+        desc='Infecção respiratória aguda (J12-J18). Incidência sobe com poluição do ar e variações climáticas.'),
     'RESPIRATORIO': dict(label='Doenças Respiratórias (geral J00-J99)', cat='Respiratória / Ar', cor='#3498db',
         amb=['pm25','pm10','dias_sem_chuva'],
         desc='Conjunto amplo de doenças do aparelho respiratório. Marcador de qualidade do ar.'),
     'CARDIOVASCULAR': dict(label='Doenças Cardiovasculares', cat='Crônica / Ar+Calor', cor='#d35400',
         amb=['pm25','temp_max','temp_media'],
-        desc='Doenças do aparelho circulatório. Material particulado fino (PM2.5) e ondas de calor elevam o risco.'),
+        desc='Doenças do aparelho circulatório (I00-I99). Material particulado fino (PM2.5) e ondas de calor elevam o risco.'),
     'NEOPLASIAS': dict(label='Neoplasias (câncer)', cat='Crônica', cor='#7f8c8d',
         amb=['pm25','agropecuaria'],
         desc='Tumores (CID C00-D48). Inclui óbitos (SIM) e internações (SIH). Exposição crônica a poluentes e agrotóxicos é fator de longo prazo.'),
@@ -100,29 +118,59 @@ GRUPO_META = {
         desc='Deficiências nutricionais (E40-E46). Marcador de vulnerabilidade social e segurança alimentar.'),
     'CAUSAS_EXTERNAS': dict(label='Causas Externas', cat='Externa', cor='#34495e',
         amb=['temp_media'],
-        desc='Lesões, acidentes e violência (S00-Y98). Relevante para vigilância, embora menos ligada ao clima.'),
+        desc='Lesões, acidentes e violência (V01-Y98). Relevante para vigilância, embora menos ligada ao clima.'),
     'TRANSTORNOS_MENTAIS': dict(label='Transtornos Mentais', cat='Saúde Mental', cor='#9b59b6',
         amb=['temp_max','dias_sem_chuva'],
         desc='Transtornos mentais e comportamentais (F00-F99). Calor extremo e estresse ambiental são fatores emergentes.'),
     'ANIMAIS_PECONHENTOS': dict(label='Acidentes por Animais Peçonhentos', cat='Ambiental direta', cor='#27ae60',
         amb=['precip','temp_media','floresta'],
-        desc='Envenenamento por animais peçonhentos (T63). Sazonal, ligado a chuvas, calor e ambiente rural/florestal.'),
+        desc='Acidentes por animais peçonhentos (X20-X29). Sazonal, ligado a chuvas, calor e ambiente rural/florestal.'),
 }
 
+# rótulos das categorias de óbito (SIM), inclui INFECCIOSAS (sem par no SIH)
+OBITO_META = {
+    'NEOPLASIAS':'Neoplasias', 'CARDIOVASCULAR':'Cardiovasculares',
+    'RESPIRATORIO':'Respiratórias', 'RENAL_URINARIO':'Renais e urinárias',
+    'DESNUTRICAO':'Desnutrição', 'TRANSTORNOS_MENTAIS':'Transtornos mentais',
+    'CAUSAS_EXTERNAS':'Causas externas', 'INFECCIOSAS':'Infecciosas e parasitárias (A00-B99)',
+}
+
+# --- lê internações (SIH) ---
 frames=[]
-for f in HEALTH_FILES:
+for f in SIH_FILES:
     df=pd.read_csv(os.path.join(RAW,f+'.csv'),sep=';')
     frames.append(df)
 H=pd.concat(frames,ignore_index=True)
-# junção pelo NOME (código do arquivo é inconsistente — ver nota na seção 1)
+H['grupo_doenca']=H.grupo_doenca.map(lambda g:GROUP_NORM.get(str(g).strip(),str(g).strip()))
 H['cod']=H.municipio.map(cod_por_nome)
 nao_mapeados=sorted(H[H.cod.isna()].municipio.unique())
 if nao_mapeados: print("AVISO: municípios de saúde não mapeados:", nao_mapeados)
 H=H[H.cod.notna()].copy()
 H['ano']=H.ano.astype(int); H['mes']=H.mes.astype(int); H['valor']=H.valor.astype(float)
 H['cod']=H.cod.astype(int)
+# 2026 é parcial (jan-abr) -> mantém para sazonalidade mensal, mas o eixo anual
+# usa apenas anos completos (2010–2025)
+ANO_MIN_SAUDE, ANO_MAX_SAUDE = 2010, 2025
+H_ANUAL = H[H.ano<=ANO_MAX_SAUDE]   # para séries/totais anuais
+# H (completo, inclui 2026 parcial) é usado só na climatologia mensal
 
-ANO_MIN_SAUDE, ANO_MAX_SAUDE = int(H.ano.min()), int(H.ano.max())
+# --- lê óbitos (SIM), anuais (mes=0) ---
+sim_rows=[]
+for f,grp in SIM_FILES.items():
+    df=pd.read_csv(os.path.join(RAW,f+'.csv'),sep=';')
+    df['cod']=df.municipio.map(cod_por_nome)
+    df=df[df.cod.notna()].copy()
+    df['ano']=df.ano.astype(int); df['valor']=df.valor.astype(float); df['cod']=df.cod.astype(int)
+    df['ogrupo']=grp
+    sim_rows.append(df[['cod','ano','valor','ogrupo']])
+SIM=pd.concat(sim_rows,ignore_index=True)
+ANO_MAX_OBITO=int(SIM.ano.max())
+
+# óbitos por município x categoria x ano -> obitos_anual
+obitos_anual={}
+for (cod,grp),g in SIM.groupby(['cod','ogrupo']):
+    obitos_anual.setdefault(int(cod),{})[grp]={int(r.ano):int(r.valor) for _,r in g.iterrows()}
+
 
 # ---------------------------------------------------------------------------
 # 3. AMBIENTE — atmosfera anual (BR-DWGD/MapBiomas) + cobertura do solo
@@ -209,19 +257,23 @@ def tendencia(years, vals):
 # ===========================================================================
 # 4. SÉRIES DE SAÚDE (anual e mensal) por município e grupo
 # ===========================================================================
-# anual por município x grupo x ano (soma de internações/óbitos)
-ha = (H.groupby(['cod','grupo_doenca','sistema','ano'])['valor'].sum()
-        .reset_index())
-
+# internações anuais (SIH) — soma mensal por ano (anos completos 2010–2025)
+ha = (H_ANUAL.groupby(['cod','grupo_doenca','ano'])['valor'].sum().reset_index())
 saude_anual={}   # cod -> grupo -> {ano: {sih, sim}}
 for (cod,grupo),g in ha.groupby(['cod','grupo_doenca']):
     d={}
     for _,r in g.iterrows():
-        a=int(r.ano); d.setdefault(a,{'sih':0,'sim':0})
-        d[a]['sih' if r.sistema=='SIH/SUS' else 'sim']+=int(r.valor)
+        d[int(r.ano)]={'sih':int(r.valor),'sim':0}
     saude_anual.setdefault(int(cod),{})[grupo]=d
+# óbitos anuais (SIM) somados ao campo .sim dos grupos correspondentes
+for cod,gd in obitos_anual.items():
+    for ogrupo,serie in gd.items():
+        if ogrupo not in GRUPO_META: continue   # INFECCIOSAS não tem par no SIH
+        for a,v in serie.items():
+            saude_anual.setdefault(cod,{}).setdefault(ogrupo,{}).setdefault(a,{'sih':0,'sim':0})
+            saude_anual[cod][ogrupo][a]['sim']=int(v)
 
-# mensal (climatologia/sazonalidade) — média por mês ao longo dos anos
+# mensal (climatologia/sazonalidade) — média por mês ao longo dos anos (inclui 2026 parcial)
 hm=(H.groupby(['cod','grupo_doenca','mes'])['valor'].mean().reset_index())
 saude_sazonal={}
 for (cod,grupo),g in hm.groupby(['cod','grupo_doenca']):
@@ -229,8 +281,8 @@ for (cod,grupo),g in hm.groupby(['cod','grupo_doenca']):
     for _,r in g.iterrows(): arr[int(r.mes)-1]=r2(r.valor)
     saude_sazonal.setdefault(int(cod),{})[grupo]=arr
 
-# mensal completo (heatmap ano×mês) por município x grupo
-hfull=(H.groupby(['cod','grupo_doenca','ano','mes'])['valor'].sum().reset_index())
+# mensal completo (heatmap ano×mês) por município x grupo — anos completos
+hfull=(H_ANUAL.groupby(['cod','grupo_doenca','ano','mes'])['valor'].sum().reset_index())
 
 # ===========================================================================
 # 5. SÉRIES AMBIENTAIS anuais por município x variável
@@ -399,8 +451,9 @@ ranking_doencas.sort(key=lambda d:-d['recente'])
 # 8. RESUMO REGIONAL
 # ===========================================================================
 pop_total=sum(POP2022.values())
-total_internacoes=int(H[H.sistema=='SIH/SUS']['valor'].sum())
-total_obitos=int(H[H.sistema=='SIM/DO']['valor'].sum())
+total_internacoes=int(H_ANUAL['valor'].sum())
+# óbitos: soma de todas as categorias SIM, exceto duplicata de animais peçonhentos
+total_obitos=int(SIM['valor'].sum())
 
 def tend_clima_regional(vid):
     d=reg_amb[vid]; anos=sorted(d)
@@ -408,7 +461,7 @@ def tend_clima_regional(vid):
 
 resumo=dict(
     pop_total=pop_total, n_municipios=len(POP2022),
-    ano_min=ANO_MIN_SAUDE, ano_max=ANO_MAX_SAUDE,
+    ano_min=ANO_MIN_SAUDE, ano_max=ANO_MAX_SAUDE, ano_max_obito=ANO_MAX_OBITO,
     amb_ano_min=int(A.ano.min()), amb_ano_max=int(A.ano.max()),
     total_internacoes=total_internacoes, total_obitos=total_obitos,
     n_grupos=len(GRUPO_META),
@@ -493,11 +546,12 @@ DADOS=dict(
               referencias=dict(CONAMA_PM25=CONAMA_PM25,CONAMA_PM10=CONAMA_PM10,
                                OMS_PM25=OMS_PM25,OMS_PM10=OMS_PM10),
               pesos_indice=W, nomes={c:NOME_CANONICO[c] for c in POP2022},
-              pop={c:POP2022[c] for c in POP2022}),
+              pop={c:POP2022[c] for c in POP2022}, obito_grupos=OBITO_META),
     resumo=resumo,
     saude_anual=saude_anual,
     saude_sazonal=saude_sazonal,
     saude_mensal=hfull_d,
+    obitos_anual=obitos_anual,
     amb_anual=amb_anual,
     amb_sazonal=amb_sazonal,
     cobertura=cobertura,

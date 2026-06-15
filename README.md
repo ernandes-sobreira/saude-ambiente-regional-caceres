@@ -27,19 +27,25 @@ técnicos da saúde, cientistas e a comunidade.
 
 ## 📊 Dados
 
-- **Saúde** — SIH/SUS (internações) e SIM/DO (óbitos por neoplasia), DATASUS,
-  2010–2024, mensal, 14 grupos de agravos (CID-10).
-- **Atmosfera/Clima** — MapBiomas / BR-DWGD, 1985–2024 (temperatura,
-  precipitação, PM2.5, PM10, déficit de pressão de vapor, dias sem chuva,
-  disponibilidade de água).
+- **Internações (SIH/SUS)** — DATASUS, **por município de residência**,
+  **mensal**, 2010–2025 (dados até abr/2026 usados na climatologia), 14 grupos
+  de agravos (CID-10). Cobertura completa dos 14 municípios.
+- **Óbitos (SIM/DO)** — DATASUS, por residência, **anual**, 2010–2024,
+  8 categorias (inclui doenças infecciosas/parasitárias A00-B99).
+- **Atmosfera/Clima** — MapBiomas / BR-DWGD, 1985–2024, anual e **mensal**
+  (temperatura, precipitação, PM2.5, PM10, déficit de pressão de vapor, dias sem
+  chuva, disponibilidade de água).
 - **Uso e cobertura da terra** — MapBiomas Coleção 9, 1985–2024 (25 classes
   agregadas em macroclasses).
 - **População** — IBGE Censo 2022 (para taxas por 100 mil habitantes).
 
-> **Cobertura de saúde:** internações (SIH) são registradas no município do
-> hospital; por isso apenas 6 municípios com hospital têm cobertura ampla. Os
-> demais aparecem essencialmente com óbitos por neoplasia (por residência) e são
-> sinalizados com ⚠️ na plataforma.
+> **Análises mensais:** a plataforma usa as internações mensais e a climatologia
+> mensal do clima para revelar relações sazonais (ex.: dengue × chuva ao longo
+> dos 12 meses). Os óbitos (SIM) são anuais.
+>
+> **Nota de reconciliação:** os arquivos de origem trazem códigos IBGE
+> inconsistentes para alguns municípios; a junção é feita pelo **nome
+> normalizado**, reatribuindo o código IBGE oficial e a população.
 
 ## 🧮 Índice de Prioridade
 
