@@ -180,5 +180,50 @@ const CH = (() => {
     return mount(el,o);
   }
 
-  return {mount,line,bar,heatmap,corrHeatmap,scatter,radar,donut,resizeAll,clearAll,PAL};
+  /* ---------- Combo barra + linha (eixo duplo) ---------- */
+  function comboBarLine(el, cats, bars, lines, opt={}){
+    const o = Object.assign(base(), {
+      grid:{left:54,right:56,top:46,bottom:42,containLabel:true},
+      tooltip:{...base().tooltip, trigger:'axis', axisPointer:{type:'cross',label:{backgroundColor:'#0e7c7b'}}},
+      xAxis:{type:'category',data:cats,...AX,axisLabel:{...AX.axisLabel,interval:0,rotate:opt.rotate||0}},
+      yAxis:[
+        {type:'value',name:opt.yname||'',nameTextStyle:{color:'#7b8f9a',fontSize:11},...AX,scale:!!opt.scaleL},
+        {type:'value',name:opt.y2name||'',nameTextStyle:{color:'#7b8f9a',fontSize:11},...AX,splitLine:{show:false},scale:true}
+      ],
+      series:[
+        ...bars.map(s=>({name:s.name,type:'bar',data:s.data,yAxisIndex:0,barMaxWidth:34,
+          itemStyle:{color:s.color,borderRadius:[5,5,0,0]},emphasis:{focus:'series'}})),
+        ...lines.map(s=>({name:s.name,type:'line',data:s.data,yAxisIndex:1,smooth:.35,symbol:'circle',symbolSize:6,
+          lineStyle:{width:3,color:s.color},itemStyle:{color:s.color},emphasis:{focus:'series'}}))
+      ]
+    });
+    return mount(el,o);
+  }
+
+  /* ---------- Sankey (relações saúde × ambiente) ---------- */
+  function sankey(el, nodes, links, opt={}){
+    const o={
+      textStyle:{fontFamily:FONT},
+      tooltip:{trigger:'item',backgroundColor:'rgba(19,33,43,.94)',borderWidth:0,
+        textStyle:{color:'#fff',fontSize:12.5},padding:[9,13],extraCssText:'border-radius:9px',
+        formatter:p=>{ if(p.dataType==='edge'){
+            return `${p.data.source} → ${p.data.target}<br>Força da ligação: <b>${(p.data.realr>0?'+':'')}${p.data.realr}</b> (${p.data.realr>0?'positiva':'negativa'})`;
+          } return `<b>${p.name}</b><br>${p.value? 'Força total: '+p.value.toFixed(0):''}`; }},
+      series:[{
+        type:'sankey', left:14, right:opt.right||150, top:14, bottom:14,
+        draggable:true, nodeWidth:16, nodeGap:11,
+        emphasis:{focus:'adjacency'},
+        data:nodes, links:links,
+        label:{color:'#13212b',fontSize:11.5,fontFamily:FONT},
+        lineStyle:{color:'gradient',curveness:.5,opacity:.42},
+        levels:[
+          {depth:0,itemStyle:{color:'#0e7c7b'},label:{position:'right'}},
+          {depth:1,itemStyle:{color:'#94a3b8'}}
+        ]
+      }]
+    };
+    return mount(el,o);
+  }
+
+  return {mount,line,bar,heatmap,corrHeatmap,scatter,radar,donut,comboBarLine,sankey,resizeAll,clearAll,PAL};
 })();

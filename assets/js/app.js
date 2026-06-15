@@ -347,7 +347,7 @@ function buildPriTable(sortKey='score',asc=false){
 /* ================================================================
    SAÚDE (aba dedicada) — totalmente interativa
    ================================================================ */
-const stSaude={scope:0, grupo:'', sis:'', gran:'anual'};
+const stSaude={scope:0, grupo:'', sis:'', gran:'anual', metr:'abs'};
 function renderSaude(root){
   root.innerHTML=`
   <div class="toolbar">
@@ -355,6 +355,7 @@ function renderSaude(root){
     <label class="muted">Agravo:</label><select id="sdGrupo"></select>
     <label class="muted">Dado:</label>${pillset('sdSis',[{v:'',label:'Internações+Óbitos'},{v:'sih',label:'Internações (SIH)'},{v:'sim',label:'Óbitos (SIM)'}],stSaude.sis)}
     <div class="grow"></div>
+    <label class="muted">Valores:</label>${pillset('sdMetr',[{v:'abs',label:'Absolutos'},{v:'prop',label:'Por 100 mil hab.'}],stSaude.metr)}
     <label class="muted">Período:</label>${pillset('sdGran',[{v:'anual',label:'Anual'},{v:'mensal',label:'Mensal'}],stSaude.gran)}
   </div>
   <div id="sdLimit"></div>
@@ -380,10 +381,15 @@ function renderSaude(root){
   scope.onchange=()=>{stSaude.scope=+scope.value;draw();};
   grupo.onchange=()=>{stSaude.grupo=grupo.value;draw();};
   bindPills('sdSis',v=>{stSaude.sis=v;draw();});
+  bindPills('sdMetr',v=>{stSaude.metr=v;draw();});
   bindPills('sdGran',v=>{stSaude.gran=v;draw();});
   function draw(){
     if(!document.getElementById('sdKpis'))return;
-    const {scope:sc,grupo:gp,sis,gran}=stSaude;
+    const {scope:sc,grupo:gp,sis,gran,metr}=stSaude;
+    const prop=metr==='prop';
+    const scl=(v,pref)=>v==null?null:(prop?+(v/pref*100000).toFixed(prop?1:0):v);
+    const uni=prop?'/100k':'';
+    const fmtv=v=>prop?fmt(v):f0(v);
     // aviso de cobertura
     const lim=sc && D.meta.municipios.find(m=>m.cod===sc)?.saude_limitada;
     document.getElementById('sdLimit').innerHTML = lim?
@@ -397,30 +403,29 @@ function renderSaude(root){
     let topG=null,topV=-1; for(const g in G){const v=totalEscopoGrupo(sc,g,sis,[2020,2021,2022,2023,2024]); if(v>topV){topV=v;topG=g;}}
     document.getElementById('sdKpis').innerHTML=
       kpi('Internações (SIH)',f0(totSih),'',`${D.resumo.ano_min}–${D.resumo.ano_max} · ${nomeEscopo(sc)}`,'🏥','#1c6dd0')+
-      kpi('Óbitos (SIM)',f0(totSim),'','neoplasias','🕯️','#6741d9')+
+      kpi('Óbitos (SIM)',f0(totSim),'',`${D.resumo.ano_min}–${D.resumo.ano_max_obito}`,'🕯️','#6741d9')+
       kpi('Taxa anual recente',f0(taxa),'/100k hab','média 2020–'+D.resumo.ano_max,'📊','#0e7c7b')+
       kpi('Principal agravo',G[topG]?G[topG].label.split(' ')[0]:'—','',`${f0(topV)} casos recentes`,'📈','#d6336c');
     // série temporal
-    const tagEl=document.getElementById('sdSerieTag');
+    const tagEl=document.getElementById('sdSerieTag'); tagEl.textContent=(gran==='anual'?'anual':'climatologia mensal')+(prop?' · /100k hab':'');
+    const pref=popEscopo(sc);
     const ie=echarts.getInstanceByDom(document.getElementById('sdSerie')); if(ie)ie.dispose();
     if(gran==='anual'){
-      tagEl.textContent='anual';
       if(gp){ const s=saudeAnualEscopo(sc,gp,sis);
-        CH.line('sdSerie',ANOS_SAUDE,[{name:G[gp].label,data:ANOS_SAUDE.map(a=>s[a]||0),color:G[gp].cor,area:true}],{legend:false});
+        CH.line('sdSerie',ANOS_SAUDE,[{name:G[gp].label,data:ANOS_SAUDE.map(a=>scl(s[a]||0,pref)),color:G[gp].cor,area:true}],{legend:false,yname:uni});
       } else { // todos: top 5 agravos
         const tops=Object.keys(G).map(g=>({g,t:totalEscopoGrupo(sc,g,sis)})).sort((a,b)=>b.t-a.t).slice(0,5);
-        CH.line('sdSerie',ANOS_SAUDE,tops.map(o=>({name:G[o.g].label,color:G[o.g].cor,data:(()=>{const s=saudeAnualEscopo(sc,o.g,sis);return ANOS_SAUDE.map(a=>s[a]||0);})()})),{});
+        CH.line('sdSerie',ANOS_SAUDE,tops.map(o=>({name:G[o.g].label,color:G[o.g].cor,data:(()=>{const s=saudeAnualEscopo(sc,o.g,sis);return ANOS_SAUDE.map(a=>scl(s[a]||0,pref));})()})),{yname:uni});
       }
     } else { // mensal: climatologia
-      tagEl.textContent='climatologia mensal';
-      if(gp){ CH.bar('sdSerie',MESES,[{name:G[gp].label,data:saudeMensalClimEscopo(sc,gp),color:G[gp].cor}],{legend:false,label:true,labelFmt:p=>fmt(p.value)});
+      if(gp){ CH.bar('sdSerie',MESES,[{name:G[gp].label,data:saudeMensalClimEscopo(sc,gp).map(v=>scl(v,pref)),color:G[gp].cor}],{legend:false,label:true,labelFmt:p=>fmtv(p.value),yname:uni});
       } else { const tops=Object.keys(G).map(g=>({g,t:totalEscopoGrupo(sc,g,sis)})).sort((a,b)=>b.t-a.t).slice(0,5);
-        CH.line('sdSerie',MESES,tops.map(o=>({name:G[o.g].label,color:G[o.g].cor,data:saudeMensalClimEscopo(sc,o.g)})),{}); }
+        CH.line('sdSerie',MESES,tops.map(o=>({name:G[o.g].label,color:G[o.g].cor,data:saudeMensalClimEscopo(sc,o.g).map(v=>scl(v,pref))})),{yname:uni}); }
     }
     // ranking municípios
     const ir=echarts.getInstanceByDom(document.getElementById('sdRank')); if(ir)ir.dispose();
-    const rk=D.meta.municipios.map(m=>({m,v:totalEscopoGrupo(m.cod,gp,sis)})).filter(o=>o.v>0).sort((a,b)=>b.v-a.v);
-    CH.bar('sdRank',rk.map(o=>o.m.nome),[{name:'Casos',data:rk.map(o=>({value:o.v,itemStyle:{color:catColor(o.m.categoria)}}))}],{horizontal:true,legend:false,label:true,labelFmt:p=>f0(p.value)});
+    const rk=D.meta.municipios.map(m=>({m,v:scl(totalEscopoGrupo(m.cod,gp,sis),m.pop)})).filter(o=>o.v>0).sort((a,b)=>b.v-a.v);
+    CH.bar('sdRank',rk.map(o=>o.m.nome),[{name:prop?'/100k':'Casos',data:rk.map(o=>({value:o.v,itemStyle:{color:catColor(o.m.categoria)}}))}],{horizontal:true,legend:false,label:true,labelFmt:p=>fmtv(p.value)});
     const rkInst=echarts.getInstanceByDom(document.getElementById('sdRank'));
     if(rkInst)rkInst.on('click',p=>{const m=rk[rk.length-1-p.dataIndex]||rk[p.dataIndex]; const mm=rk.find(o=>o.m.nome===p.name); if(mm){state.cod=mm.m.cod;muniSelect.value=mm.m.cod;setView('municipio');}});
     // donut composição
@@ -442,26 +447,30 @@ function renderSaude(root){
     const anosOb=[]; for(let a=D.resumo.ano_min;a<=D.resumo.ano_max_obito;a++)anosOb.push(a);
     const obi=echarts.getInstanceByDom(document.getElementById('sdObito')); if(obi)obi.dispose();
     CH.bar('sdObito',anosOb.map(String),obCats.map((oc,i)=>({name:D.meta.obito_grupos[oc],color:CH.PAL[i%12],
-      data:anosOb.map(a=>obitosAnualEscopo(sc,oc)[a]||0)})),{stack:true});
+      data:anosOb.map(a=>scl(obitosAnualEscopo(sc,oc)[a]||0,popEscopo(sc)))})),{stack:true,yname:uni});
     // tabela
-    buildSaudeTbl(sc,sis);
+    buildSaudeTbl(sc,sis,metr);
   }
   draw();
 }
 let sdSort={k:'recente',asc:false};
-function buildSaudeTbl(sc,sis){
+function buildSaudeTbl(sc,sis,metr){
+  const prop=metr==='prop'; const pref=popEscopo(sc);
+  const sclv=v=>prop?+(v/pref*100000).toFixed(1):v;
   const rows=Object.keys(G).map(g=>{const s=saudeAnualEscopo(sc,g,sis);const anos=Object.keys(s).map(Number);
     const total=anos.reduce((t,a)=>t+s[a],0); const recente=[2020,2021,2022,2023,2024].reduce((t,a)=>t+(s[a]||0),0);
     const t=RECO.tendencia(s); return {g,label:G[g].label,cat:G[g].cat,cor:G[g].cor,total,recente,tend:t};}).filter(r=>r.total>0);
   const kf={label:r=>r.label,total:r=>r.total,recente:r=>r.recente,tend:r=>r.tend.pct};
   rows.sort((a,b)=>{const va=kf[sdSort.k](a),vb=kf[sdSort.k](b);return typeof va==='string'?(sdSort.asc?va.localeCompare(vb):vb.localeCompare(va)):(sdSort.asc?va-vb:vb-va);});
   const t=document.getElementById('sdTbl'); if(!t)return;
-  const H=[['label','Agravo'],['total','Total ('+D.resumo.ano_min+'–'+D.resumo.ano_max+')'],['recente','Recente (2020+)'],['tend','Tendência']];
+  const u=prop?' /100k':'';
+  const H=[['label','Agravo'],['total','Total '+D.resumo.ano_min+'–'+D.resumo.ano_max+u],['recente','Recente (2020+)'+u],['tend','Tendência']];
+  const fnum=v=>prop?fmt(v):f0(v);
   t.innerHTML=`<thead><tr>${H.map(h=>`<th data-k="${h[0]}">${h[1]}</th>`).join('')}</tr></thead><tbody>${
     rows.map(r=>`<tr><td><span class="dot" style="background:${r.cor};margin-right:7px"></span><b>${r.label}</b> <span class="tag-cat">${r.cat}</span></td>
-      <td class="num">${f0(r.total)}</td><td class="num">${f0(r.recente)}</td>
+      <td class="num">${fnum(sclv(r.total))}</td><td class="num">${fnum(sclv(r.recente))}</td>
       <td>${r.tend.dir==='up'?`<span class="trend-up">▲ +${r.tend.pct}%</span>`:r.tend.dir==='down'?`<span class="trend-down">▼ ${r.tend.pct}%</span>`:'<span class="trend-flat">— estável</span>'}</td></tr>`).join('')}</tbody>`;
-  t.querySelectorAll('th').forEach(th=>th.onclick=()=>{sdSort={k:th.dataset.k,asc:sdSort.k===th.dataset.k?!sdSort.asc:false};buildSaudeTbl(sc,sis);});
+  t.querySelectorAll('th').forEach(th=>th.onclick=()=>{sdSort={k:th.dataset.k,asc:sdSort.k===th.dataset.k?!sdSort.asc:false};buildSaudeTbl(sc,sis,metr);});
 }
 
 /* ================================================================
@@ -796,49 +805,87 @@ function cmpMeses(body){
 }
 
 /* ================================================================
-   5. SAZONALIDADE (regional)
+   5. SAZONALIDADE SAÚDE × AMBIENTE (combo coluna+linha, p/ gestores)
    ================================================================ */
+const stSz={scope:0, grupo:'DENGUE', vid:'precip', metr:'abs'};
 function renderSazonal(root){
   root.innerHTML=`
-  <div class="section-desc">Os padrões sazonais revelam <b>quando</b> agir. Dengue e doenças vetoriais concentram-se no período chuvoso/quente; doenças respiratórias sobem na estação seca (queimadas e ar seco). Antecipar campanhas ao pico é mais eficaz e barato.</div>
-  <div class="grid g2">
-    ${chartCard('📅 Climatologia mensal — todos os agravos','Média histórica de internações por mês (regional)','szAll','xl')}
-    ${chartCard('🦟 Sazonalidade de doenças vetoriais e hídricas','Dengue, malária/leishmaniose, diarreicas e animais peçonhentos','szVet','lg')}
+  <div class="section-desc">A sazonalidade mostra <b>quando</b> agir. Aqui você sobrepõe o padrão mensal de um agravo (colunas) ao de uma variável ambiental (linha) para ver se eles caminham juntos ao longo do ano — base para antecipar campanhas ao pico.</div>
+  <div class="toolbar">
+    <label class="muted">Escopo:</label><select id="szScope"></select>
+    <label class="muted">Agravo (colunas):</label><select id="szG"></select>
+    <label class="muted">Variável ambiental (linha):</label><select id="szV"></select>
+    <div class="grow"></div>
+    <label class="muted">Valores:</label>${pillset('szMetr',[{v:'abs',label:'Absolutos'},{v:'prop',label:'Por 100 mil hab.'}],stSz.metr)}
   </div>
-  <div class="grid g2" style="margin-top:18px">
-    ${chartCard('🫁 Sazonalidade de doenças respiratórias','Asma, DPOC, pneumonia e respiratório geral','szResp','lg')}
-    ${chartCard('🗓️ Heatmap ano × mês (agravo selecionado)','','szHeat','lg',`<select id="szGrupo"></select>`)}
-  </div>`;
+  <div id="szInterp"></div>
+  <div class="card" style="margin-bottom:18px"><div class="card-head"><div><h3 id="szComboTitle"></h3>
+    <div class="card-sub" id="szComboSub"></div></div></div><div id="szCombo" class="chart xl"></div>
+    <div class="legend-row"><span><span class="dot" style="background:#0e7c7b"></span> Agravo (casos/mês, eixo esquerdo)</span>
+      <span><span class="dot" style="background:#e8590c"></span> Variável ambiental (eixo direito)</span></div></div>
+  <div class="grid g2">
+    ${chartCard('🦟 Vetoriais e hídricas — padrão mensal','Dengue, malária/leishmanioses, diarreicas e animais peçonhentos','szVet','lg')}
+    ${chartCard('🫁 Respiratórias — padrão mensal','Asma, DPOC, pneumonia e respiratório vs. PM2.5','szResp','lg')}
+  </div>
+  <div class="card" style="margin-top:18px"><div class="card-head"><div><h3>🗓️ Heatmap ano × mês (agravo selecionado)</h3>
+    <div class="card-sub">Intensidade ao longo do tempo — identifica anos atípicos</div></div></div><div id="szHeat" class="chart lg"></div></div>`;
 
-  const sazReg=g=>{const arr=Array(12).fill(0);D.meta.municipios.forEach(m=>{const s=(D.saude_sazonal[m.cod]||{})[g]||[];s.forEach((v,i)=>arr[i]+=(v||0));});return arr.map(v=>+v.toFixed(1));};
-  // heatmap all groups x month
-  const grupos=D.ranking_doencas.filter(d=>d.recente>0).map(d=>d.grupo);
-  const data=[];
-  grupos.forEach((g,gi)=>{const s=sazReg(g);for(let mi=0;mi<12;mi++)data.push([mi,gi,s[mi]]);});
-  CH.heatmap('szAll',MESES,grupos.map(g=>G[g].label.length>20?G[g].label.slice(0,19)+'…':G[g].label),data,
-    {inverse:true,showLabel:false,bottom:50,left:8,
-     tip:p=>`${G[grupos[p.data[1]]].label} · ${MESES[p.data[0]]}<br>Média regional: <b>${p.data[2]}</b>/mês`});
+  const scope=document.getElementById('szScope'); muniOptions(scope,true,stSz.scope);
+  const g=document.getElementById('szG'); grupoOptions(g,stSz.grupo);
+  const v=document.getElementById('szV'); Object.keys(VARS).forEach(k=>v.add(new Option(VARS[k].label,k))); v.value=stSz.vid;
+  scope.onchange=()=>{stSz.scope=+scope.value;draw();};
+  g.onchange=()=>{stSz.grupo=g.value;draw();};
+  v.onchange=()=>{stSz.vid=v.value;draw();};
+  bindPills('szMetr',x=>{stSz.metr=x;draw();});
 
-  CH.line('szVet',MESES,[
-    {name:'Dengue',data:sazReg('DENGUE'),color:G.DENGUE.cor},
-    {name:'Malária/Leish.',data:sazReg('LEISHMANIOSE_MALARIA'),color:G.LEISHMANIOSE_MALARIA.cor},
-    {name:'Diarreicas',data:sazReg('DIARREICAS_GASTROENTERITES'),color:G.DIARREICAS_GASTROENTERITES.cor},
-    {name:'Animais peçonhentos',data:sazReg('ANIMAIS_PECONHENTOS'),color:G.ANIMAIS_PECONHENTOS.cor}],{});
-  CH.line('szResp',MESES,[
-    {name:'Asma',data:sazReg('ASMA'),color:G.ASMA.cor},
-    {name:'DPOC',data:sazReg('DPOC'),color:G.DPOC.cor},
-    {name:'Pneumonia',data:sazReg('PNEUMONIA'),color:G.PNEUMONIA.cor},
-    {name:'Respiratório',data:sazReg('RESPIRATORIO'),color:G.RESPIRATORIO.cor}],{});
-
-  const sel=document.getElementById('szGrupo'); grupoOptions(sel,'DENGUE');
-  const drawHeat=()=>{
-    const g=sel.value; const grid={};
-    D.meta.municipios.forEach(m=>{(((D.saude_mensal[m.cod]||{})[g])||[]).forEach(([y,mo,v])=>{grid[y+'-'+mo]=(grid[y+'-'+mo]||0)+v;});});
-    const cells=[]; ANOS_SAUDE.forEach((y,yi)=>{for(let mo=1;mo<=12;mo++)cells.push([mo-1,yi,grid[y+'-'+mo]||0]);});
+  const argmax=arr=>{let bi=0,bv=-Infinity;arr.forEach((x,i)=>{if(x!=null&&x>bv){bv=x;bi=i;}});return bi;};
+  function draw(){
+    if(!document.getElementById('szCombo'))return;
+    const {scope:sc,grupo:gp,vid,metr}=stSz; const prop=metr==='prop'; const pref=popEscopo(sc);
+    const saudeC=saudeMensalClimEscopo(sc,gp).map(x=>prop?+(x/pref*100000).toFixed(2):x);
+    const envC=ambMensalClimEscopo(sc,vid);
+    const r=pearson(saudeMensalClimEscopo(sc,gp),envC);
+    // combo
+    document.getElementById('szComboTitle').textContent=`📊 ${G[gp].label} × ${VARS[vid].label}`;
+    document.getElementById('szComboSub').textContent=`${nomeEscopo(sc)} · climatologia mensal${prop?' (casos /100k hab)':''}`+(r?` · correlação sazonal r = ${r.r}`:'');
+    const ci=echarts.getInstanceByDom(document.getElementById('szCombo')); if(ci)ci.dispose();
+    CH.comboBarLine('szCombo',MESES,
+      [{name:G[gp].label,color:'#0e7c7b',data:saudeC}],
+      [{name:VARS[vid].label+' ('+VARS[vid].unidade+')',color:'#e8590c',data:envC}],
+      {yname:prop?'/100k':'casos',y2name:VARS[vid].unidade});
+    // interpretação automática
+    const pmS=argmax(saudeC), pmV=argmax(envC);
+    let forca='sem relação clara', cls='info';
+    if(r){const a=Math.abs(r.r); forca = a>=0.7?(r.r>0?'forte e positiva':'forte e negativa'):a>=0.4?(r.r>0?'moderada e positiva':'moderada e negativa'):'fraca';
+      cls = a>=0.7?(r.r>0?'warn':'ok'):a>=0.4?'info':'info';}
+    document.getElementById('szInterp').innerHTML=
+      `<div class="alert ${cls}" style="margin-bottom:18px"><div class="a-ico">🔎</div><div class="a-body">
+      O pico de <b>${G[gp].label}</b> ocorre em <b>${MESES[pmS]}</b>; <b>${VARS[vid].label}</b> atinge o máximo em <b>${MESES[pmV]}</b>.
+      ${r?`A correlação sazonal entre as duas é <b>r = ${r.r}</b> (${forca}).`:''}
+      ${r&&Math.abs(r.r)>=0.5?` Isso sugere <b>antecipar ações</b> de prevenção 1–2 meses antes do pico ambiental.`:' Combine com vigilância local para confirmar relações.'}
+      <span class="muted"> (Correlação não prova causalidade.)</span></div></div>`;
+    // contexto: vetoriais e respiratórias (padrão mensal, escopo)
+    const sazG=k=>saudeMensalClimEscopo(sc,k).map(x=>prop?+(x/pref*100000).toFixed(2):x);
+    const vi=echarts.getInstanceByDom(document.getElementById('szVet')); if(vi)vi.dispose();
+    CH.line('szVet',MESES,[
+      {name:'Dengue',data:sazG('DENGUE'),color:G.DENGUE.cor},
+      {name:'Malária/Leish.',data:sazG('LEISHMANIOSE_MALARIA'),color:G.LEISHMANIOSE_MALARIA.cor},
+      {name:'Diarreicas',data:sazG('DIARREICAS_GASTROENTERITES'),color:G.DIARREICAS_GASTROENTERITES.cor},
+      {name:'Animais peçonh.',data:sazG('ANIMAIS_PECONHENTOS'),color:G.ANIMAIS_PECONHENTOS.cor}],{yname:prop?'/100k':''});
+    const ri=echarts.getInstanceByDom(document.getElementById('szResp')); if(ri)ri.dispose();
+    CH.comboBarLine('szResp',MESES,
+      [{name:'Pneumonia',color:G.PNEUMONIA.cor,data:sazG('PNEUMONIA')},
+       {name:'Asma',color:G.ASMA.cor,data:sazG('ASMA')}],
+      [{name:'PM2.5',color:'#e8590c',data:ambMensalClimEscopo(sc,'pm25')}],
+      {yname:prop?'/100k':'casos',y2name:'µg/m³'});
+    // heatmap ano x mes
+    const hi=echarts.getInstanceByDom(document.getElementById('szHeat')); if(hi)hi.dispose();
+    const grid=saudeHeatAnoMes(sc,gp); const cells=[];
+    ANOS_SAUDE.forEach((y,yi)=>{for(let mo=1;mo<=12;mo++)cells.push([mo-1,yi,grid[y+'-'+mo]||0]);});
     CH.heatmap('szHeat',MESES,ANOS_SAUDE.map(String),cells,{inverse:true,bottom:50,
-      tip:p=>`${MESES[p.data[0]]}/${ANOS_SAUDE[p.data[1]]}<br><b>${p.data[2]}</b> casos`});
-  };
-  sel.onchange=drawHeat; drawHeat();
+      tip:p=>`${G[gp].label} · ${MESES[p.data[0]]}/${ANOS_SAUDE[p.data[1]]}<br><b>${p.data[2]}</b> casos`});
+  }
+  draw();
 }
 
 /* ================================================================
@@ -879,6 +926,13 @@ function renderCorrel(root){
       <div style="display:flex;gap:8px"><select id="coG"></select><select id="coV"></select></div></div>
       <div id="coScatter" class="chart lg"></div>
       <div id="coDual" class="chart sm" style="margin-top:8px"></div></div>
+  </div>
+  <div class="card" style="margin-top:18px">
+    <div class="card-head"><div><h3>🌐 Síntese — principais ligações Saúde ↔ Ambiente (Sankey)</h3>
+    <div class="card-sub" id="coSkSub"></div></div>
+    <label class="muted">Força mínima |r|: <select id="coSkMin"><option value="0.4">0,4</option><option value="0.5" selected>0,5</option><option value="0.6">0,6</option><option value="0.7">0,7</option></select></label></div>
+    <div id="coSankey" style="width:100%;height:560px"></div>
+    <div class="hint"><span class="i">🖱️</span> Arraste os nós (cima/baixo) para reorganizar. Passe o mouse ou clique num nó para destacar suas ligações; a espessura indica a força. Vermelho = relação positiva, azul = negativa.</div>
   </div>`;
   const scope=document.getElementById('coScope');
   D.meta.municipios.forEach(m=>scope.add(new Option(m.nome,m.cod)));
@@ -924,7 +978,29 @@ function renderCorrel(root){
     grps.forEach(g=>cg.add(new Option(G[g].label,g))); ENV_CORR.forEach(v=>cv.add(new Option(VARS[v].label,v)));
     if(rows.length){cg.value=rows[0].g;cv.value=rows[0].v;}
     drawScatter();
+    drawSankey(C);
   }
+  function drawSankey(C){
+    const sc=stCo.scope, gran=stCo.gran;
+    const minR=parseFloat(document.getElementById('coSkMin').value);
+    document.getElementById('coSkSub').textContent=`${gran==='mensal'?'Relações sazonais mensais':'Relações anuais'} · ${nomeEscopo(sc)} · ligações com |r| ≥ ${minR.toString().replace('.',',')}`;
+    // monta nós e ligações (ambiente -> saúde)
+    const usedV=new Set(), usedG=new Set(), links=[];
+    Object.keys(C).forEach(g=>ENV_CORR.forEach(v=>{const o=C[g][v];
+      if(o&&o.r!=null&&Math.abs(o.r)>=minR){
+        const sName='🌎 '+VARS[v].label, tName='🏥 '+G[g].label;
+        usedV.add(v); usedG.add(g);
+        links.push({source:sName,target:tName,value:+(Math.abs(o.r)*100).toFixed(0),realr:o.r,
+          lineStyle:{color:o.r>0?'rgba(192,20,44,.45)':'rgba(28,109,208,.45)'}});
+      }}));
+    const nodes=[...[...usedV].map(v=>({name:'🌎 '+VARS[v].label,itemStyle:{color:'#0e7c7b'}})),
+                 ...[...usedG].map(g=>({name:'🏥 '+G[g].label,itemStyle:{color:G[g].cor}}))];
+    const sk=echarts.getInstanceByDom(document.getElementById('coSankey')); if(sk)sk.dispose();
+    if(!links.length){ document.getElementById('coSankey').innerHTML='<div class="loader" style="height:100%"><div class="muted">Nenhuma ligação com força ≥ '+minR+'. Reduza o limite.</div></div>'; return; }
+    document.getElementById('coSankey').innerHTML='';
+    CH.sankey('coSankey',nodes,links,{right:170});
+  }
+  document.getElementById('coSkMin').onchange=()=>drawAll();
   function drawScatter(){
     const {scope:sc,gran}=stCo; const g=document.getElementById('coG').value, v=document.getElementById('coV').value;
     if(!g||!v||!G[g]||!VARS[v]) return;
